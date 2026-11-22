@@ -21,9 +21,12 @@ const PASSWORT = process.env.PASSWORT || "";
 const DATEN_ORDNER = path.resolve(__dirname, process.env.DATEN || "daten");
 const APP_ORDNER = path.join(__dirname, "app");
 const DATEI = path.join(DATEN_ORDNER, "daten.json");
+const FOTO_ORDNER = path.join(DATEN_ORDNER, "fotos");
 const MAX_SICHERUNGEN = 30;
 
-fs.mkdirSync(DATEN_ORDNER, { recursive: true });
+fs.mkdirSync(FOTO_ORDNER, { recursive: true });
+const fotoDatei = (id) => path.join(FOTO_ORDNER, id + ".jpg");
+const ID_OK = /^[A-Za-z0-9]{8,64}$/;
 
 // ---------- Datenbestand ----------
 // { seq: Zähler, records: { id: datensatz } }
@@ -74,6 +77,11 @@ function sync({ since = 0, changes = [] }) {
       const { dirty, ...sauber } = rec;
       bestand.records[rec.id] = { ...sauber, _seq: ++bestand.seq };
       geaendert = true;
+      // Gelöschtes Foto: Bilddatei in den Unterordner "geloescht" verschieben (nicht sofort weg)
+      if (rec.typ === "foto" && rec.deleted && ID_OK.test(rec.id) && fs.existsSync(fotoDatei(rec.id))) {
+        fs.mkdirSync(path.join(FOTO_ORDNER, "geloescht"), { recursive: true });
+        fs.renameSync(fotoDatei(rec.id), path.join(FOTO_ORDNER, "geloescht", rec.id + ".jpg"));
+      }
     }
   }
   if (geaendert) speichern();
@@ -102,7 +110,7 @@ function body(req) {
       if (groesse > 50 * 1024 * 1024) { fehler(new Error("zu groß")); req.destroy(); }
       teile.push(c);
     });
-    req.on("end", () => ok(Buffer.concat(teile).toString("utf8")));
+    req.on("end", () => ok(Buffer.concat(teile)));
     req.on("error", fehler);
   });
 }
@@ -111,7 +119,7 @@ const server = http.createServer(async (req, res) => {
   // Erlaubt den Sync auch, wenn die App von einer anderen Adresse geladen wurde
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-Passwort");
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, OPTIONS");
   res.setHeader("Access-Control-Allow-Private-Network", "true");
   if (req.method === "OPTIONS") { res.writeHead(204); return res.end(); }
 
@@ -122,7 +130,7 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname === "/api/ping") return antwort(res, 200, { ok: true, seq: bestand.seq });
     if (url.pathname === "/api/sync" && req.method === "POST") {
       try {
-        const daten = JSON.parse(await body(req));
+        const daten = JSON.parse((await body(req)).toString("utf8"));
         const erg = sync(daten);
         const anz = (daten.changes || []).length;
         if (anz) console.log(`${new Date().toLocaleTimeString("de-DE")}  ${anz} Änderung(en) empfangen`);
@@ -130,6 +138,28 @@ const server = http.createServer(async (req, res) => {
       } catch (e) {
         return antwort(res, 400, { fehler: String(e.message || e) });
       }
+    }
+    const foto = /^\/api\/foto\/([^/]+)$/.exec(url.pathname);
+    if (foto) {
+      const id = foto[1];
+      if (!ID_OK.test(id)) return antwort(res, 400, { fehler: "Ungültige ID" });
+      if (req.method === "PUT") {
+        try {
+          const daten = await body(req);
+          if (daten[0] !== 0xff || daten[1] !== 0xd8) return antwort(res, 400, { fehler: "Kein JPEG" });
+          fs.writeFileSync(fotoDatei(id) + ".tmp", daten);
+          fs.renameSync(fotoDatei(id) + ".tmp", fotoDatei(id));
+          console.log(`${new Date().toLocaleTimeString("de-DE")}  Foto empfangen (${Math.round(daten.length / 1024)} KB)`);
+          return antwort(res, 200, { ok: true });
+        } catch (e) {
+          return antwort(res, 400, { fehler: String(e.message || e) });
+        }
+      }
+      return fs.readFile(fotoDatei(id), (err, inhalt) => {
+        if (err) return antwort(res, 404, { fehler: "Foto nicht vorhanden" });
+        res.writeHead(200, { "Content-Type": "image/jpeg", "Cache-Control": "no-store" });
+        res.end(inhalt);
+      });
     }
     return antwort(res, 404, { fehler: "Unbekannt" });
   }

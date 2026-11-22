@@ -11,7 +11,7 @@ let timer;
 
 export function beiStatus(fn) { hoerer.add(fn); fn(status); return () => hoerer.delete(fn); }
 function setzen(teil) {
-  Object.assign(status, teil, { wartend: store.ungesendet().length });
+  Object.assign(status, teil, { wartend: store.ungesendet().length + store.getMeta("fotoUpload", []).length });
   for (const fn of hoerer) fn(status);
 }
 
@@ -20,6 +20,41 @@ export function serverAdresse() {
   if (eingestellt) return /^https?:\/\//.test(eingestellt) ? eingestellt : "http://" + eingestellt;
   // Standard: der Server, von dem die App geladen wurde
   return location.protocol.startsWith("http") ? location.origin : "";
+}
+
+async function roh(pfad, optionen = {}, ms = 60000) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), ms);
+  try {
+    return await fetch(serverAdresse() + pfad, {
+      ...optionen,
+      headers: { ...(optionen.headers || {}), "X-Passwort": store.getMeta("passwort", "") },
+      signal: ctrl.signal,
+      cache: "no-store",
+    });
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+// Fotos: eigene hochladen, fehlende von anderen Geräten holen
+async function fotosAbgleichen() {
+  for (const id of store.getMeta("fotoUpload", [])) {
+    const rec = store.get(id);
+    const blob = rec && (await store.fotoHolen(id));
+    if (blob) {
+      const res = await roh("/api/foto/" + id, { method: "PUT", body: blob, headers: { "Content-Type": "image/jpeg" } });
+      if (!res.ok) throw new Error("Foto-Upload fehlgeschlagen " + res.status);
+    }
+    await store.fotoHochgeladen(id);
+    setzen({});
+  }
+  const da = await store.fotoVorhanden();
+  const fehlend = store.liste("foto", (f) => !da.has(f.id)).sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 30);
+  for (const f of fehlend) {
+    const res = await roh("/api/foto/" + f.id);
+    if (res.ok) await store.fotoSpeichern(f.id, await res.blob(), false);
+  }
 }
 
 async function anfrage(pfad, daten, ms = 8000) {
@@ -54,6 +89,7 @@ export async function jetzt() {
       await store.syncErgebnis(gesendet, erg.records || []);
       await store.setMeta("seq", erg.seq);
     } while (nochmal);
+    await fotosAbgleichen();
     const zuletzt = new Date();
     await store.setMeta("zuletztSync", zuletzt.toISOString());
     setzen({ zustand: "ok", text: "Synchronisiert", zuletzt });

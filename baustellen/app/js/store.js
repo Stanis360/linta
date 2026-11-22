@@ -15,10 +15,14 @@ function req(r) {
 
 export async function init() {
   db = await new Promise((ok, fehler) => {
-    const r = indexedDB.open(DB_NAME, 1);
-    r.onupgradeneeded = () => {
-      r.result.createObjectStore("records", { keyPath: "id" });
-      r.result.createObjectStore("meta", { keyPath: "k" });
+    const r = indexedDB.open(DB_NAME, 2);
+    r.onupgradeneeded = (e) => {
+      if (e.oldVersion < 1) {
+        r.result.createObjectStore("records", { keyPath: "id" });
+        r.result.createObjectStore("meta", { keyPath: "k" });
+      }
+      // Version 2: Fotos in voller Größe (die Vorschau steckt im Datensatz)
+      if (e.oldVersion < 2) r.result.createObjectStore("blobs");
     };
     r.onsuccess = () => ok(r.result);
     r.onerror = () => fehler(r.error);
@@ -90,7 +94,28 @@ export async function loeschen(id) {
   const recs = betroffen.map((r) => ({ ...r, deleted: true, updatedAt: Math.max(jetzt, r.updatedAt + 1), dev: getMeta("deviceId"), dirty: 1 }));
   recs.forEach((r) => mem.set(r.id, r));
   await schreiben(recs);
+  for (const r of recs) if (r.typ === "foto") await fotoEntfernen(r.id);
   melden("lokal");
+}
+
+// ---------- Fotos in voller Größe ----------
+// Liegen getrennt von den Datensätzen; "fotoUpload" merkt sich, was noch zum Server muss.
+export async function fotoSpeichern(id, blob, hochladen) {
+  await req(db.transaction("blobs", "readwrite").objectStore("blobs").put(blob, id));
+  if (hochladen) await setMeta("fotoUpload", [...new Set([...getMeta("fotoUpload", []), id])]);
+}
+export async function fotoHolen(id) {
+  return (await req(db.transaction("blobs").objectStore("blobs").get(id))) || null;
+}
+export async function fotoVorhanden() {
+  return new Set(await req(db.transaction("blobs").objectStore("blobs").getAllKeys()));
+}
+export async function fotoHochgeladen(id) {
+  await setMeta("fotoUpload", getMeta("fotoUpload", []).filter((x) => x !== id));
+}
+async function fotoEntfernen(id) {
+  await req(db.transaction("blobs", "readwrite").objectStore("blobs").delete(id));
+  if (getMeta("fotoUpload", []).includes(id)) await fotoHochgeladen(id);
 }
 
 // ---------- Für den Sync ----------
@@ -126,6 +151,7 @@ export async function syncErgebnis(gesendet, empfangen) {
     mem.set(rec.id, rec);
     aendern.push(rec);
     vonAussen = true;
+    if (rec.typ === "foto" && rec.deleted) fotoEntfernen(rec.id);
   }
   if (aendern.length) await schreiben(aendern);
   if (vonAussen) melden("sync");

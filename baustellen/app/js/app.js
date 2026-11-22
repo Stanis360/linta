@@ -1,6 +1,7 @@
 import * as store from "./store.js";
 import * as sync from "./sync.js";
 import { editor, vorschauSvg } from "./grundriss.js";
+import * as fotos from "./fotos.js";
 
 const $ = (s, w = document) => w.querySelector(s);
 const inhalt = $("#inhalt");
@@ -188,7 +189,7 @@ async function baustelleBearbeiten(b) {
   else zeigen();
 }
 
-const TABS = [["info", "Info"], ["masse", "Maße"], ["stunden", "Stunden"], ["material", "Material"], ["plaene", "Pläne"]];
+const TABS = [["info", "Info"], ["masse", "Maße"], ["stunden", "Stunden"], ["material", "Material"], ["plaene", "Pläne"], ["fotos", "Fotos"]];
 
 function ansichtBaustelle(id, tab = "info") {
   const b = store.get(id);
@@ -198,13 +199,15 @@ function ansichtBaustelle(id, tab = "info") {
     <nav class="unter-tabs">${TABS.map(([k, l]) => `<a href="#/b/${id}/${k}" class="${k === tab ? "aktiv" : ""}">${l}</a>`).join("")}</nav>
     <div id="tab"></div>`;
   const ziel = $("#tab");
-  ({ info: tabInfo, masse: tabMasse, stunden: tabStunden, material: tabMaterial, plaene: tabPlaene }[tab] || tabInfo)(b, ziel);
+  inhalt.querySelector(".unter-tabs a.aktiv")?.scrollIntoView({ block: "nearest", inline: "center" });
+  ({ info: tabInfo, masse: tabMasse, stunden: tabStunden, material: tabMaterial, plaene: tabPlaene, fotos: tabFotos }[tab] || tabInfo)(b, ziel);
 }
 
 function tabInfo(b, ziel) {
   const s = summen(b.id);
   const satz = zahl(store.getMeta("stundensatz", ""));
   const plaene = store.von("plan", b.id).length;
+  const fotoZahl = store.von("foto", b.id).length;
   const masse = store.von("mass", b.id).length;
   const karte = (k, v, link) => `<a class="kachel" href="${link}"><small>${k}</small><b>${v}</b></a>`;
   ziel.innerHTML = `
@@ -213,6 +216,7 @@ function tabInfo(b, ziel) {
       ${karte("Material", euro(s.mat), `#/b/${b.id}/material`)}
       ${karte("Maße", masse, `#/b/${b.id}/masse`)}
       ${karte("Grundrisse", plaene, `#/b/${b.id}/plaene`)}
+      ${karte("Fotos", fotoZahl, `#/b/${b.id}/fotos`)}
     </div>
     <div class="karte info">
       <div class="zeile"><span class="leise">Status</span><span class="status ${b.status || "geplant"}">${STATUS[b.status] || "Geplant"}</span></div>
@@ -377,6 +381,48 @@ async function materialBearbeiten(b, m) {
 }
 
 // ----- Grundrisse -----
+// ----- Fotos -----
+const nachAufnahme = (a, c) => (c.datum || "").localeCompare(a.datum || "") || (c.zeit || "").localeCompare(a.zeit || "") || c.updatedAt - a.updatedAt;
+
+function tabFotos(b, ziel) {
+  const liste = store.von("foto", b.id).sort(nachAufnahme);
+  const tage = new Map();
+  for (const f of liste) { if (!tage.has(f.datum)) tage.set(f.datum, []); tage.get(f.datum).push(f); }
+  ziel.innerHTML = `
+    <div class="knopfreihe oben">
+      <label class="btn primaer">📷 Kamera<input type="file" accept="image/*" capture="environment" data-hinzu hidden></label>
+      <label class="btn">🖼 Galerie<input type="file" accept="image/*" multiple data-hinzu hidden></label>
+    </div>
+    <p class="leise klein" id="foto-status" hidden></p>
+    ${[...tage].map(([d, fs]) => `
+      <h2>${datum(d)}</h2>
+      <div class="fotos">${fs.map((f) => `
+        <button class="foto" data-foto="${f.id}" aria-label="Foto öffnen">
+          <img src="${f.thumb}" alt="" loading="lazy">${f.notiz ? `<span>${esc(f.notiz)}</span>` : ""}
+        </button>`).join("")}
+      </div>`).join("") || `<div class="leer">Noch keine Fotos.<br>Die Fotos werden verkleinert gespeichert (ca. 300 KB pro Foto).</div>`}`;
+  ziel.querySelectorAll("[data-hinzu]").forEach((input) => (input.onchange = async () => {
+    const dateien = [...input.files];
+    const st = $("#foto-status");
+    st.hidden = false;
+    let n = 0;
+    for (const d of dateien) {
+      st.textContent = `Speichere Foto ${++n} von ${dateien.length} …`;
+      try { await fotos.hinzufuegen(d, b.id); } catch (e) { alert(`Foto „${d.name}“ konnte nicht gelesen werden.`); }
+    }
+    zeigen();
+  }));
+  ziel.querySelectorAll("[data-foto]").forEach((el) => (el.onclick = () => {
+    const alle = store.von("foto", b.id).sort(nachAufnahme);
+    offenerBetrachter = fotos.betrachter(alle, alle.findIndex((f) => f.id === el.dataset.foto), {
+      name: b.name,
+      beiNotiz: (f, notiz) => store.speichern({ ...f, notiz }),
+      beiLoeschen: (f) => store.loeschen(f.id),
+      beiSchliessen: () => { offenerBetrachter = null; zeigen(); },
+    });
+  }));
+}
+
 function tabPlaene(b, ziel) {
   const plaene = store.von("plan", b.id).sort((x, y) => (x.name || "").localeCompare(y.name || "", "de"));
   ziel.innerHTML = `
@@ -426,12 +472,15 @@ function ansichtBericht(id) {
   const mat = store.von("material", id).sort((x, y) => (x.datum || "").localeCompare(y.datum || ""));
   const masse = store.von("mass", id).sort((x, y) => (x.bereich || "").localeCompare(y.bereich || "", "de"));
   const plaene = store.von("plan", id);
+  const fotoListe = store.von("foto", id).sort((a, c) => (a.datum || "").localeCompare(c.datum || "") || (a.zeit || "").localeCompare(c.zeit || ""));
+  const mitFotos = store.getMeta("berichtFotos", true);
   const s = summen(id);
   inhalt.innerHTML = `
-    <div class="knopfreihe nicht-drucken"><button class="btn primaer" onclick="print()">🖨 Drucken / als PDF speichern</button></div>
+    <div class="knopfreihe nicht-drucken"><button class="btn primaer" onclick="print()">🖨 Drucken / als PDF speichern</button>
+      ${fotoListe.length ? `<label class="btn"><input type="checkbox" id="mit-fotos" ${mitFotos ? "checked" : ""}> Fotos (${fotoListe.length}) mit drucken</label>` : ""}</div>
     <article class="bericht">
       <h1>${esc(b.name)}</h1>
-      <p>${esc([b.kunde, b.adresse, b.telefon].filter(Boolean).join(" · "))}<br>
+      <p>${[b.kunde, b.adresse, b.telefon].some(Boolean) ? esc([b.kunde, b.adresse, b.telefon].filter(Boolean).join(" · ")) + "<br>" : ""}
       Status: ${STATUS[b.status] || ""}${b.beginn ? " · Beginn " + datum(b.beginn) : ""} · Stand ${new Date().toLocaleDateString("de-DE")}</p>
       ${b.notiz ? `<p class="notiz">${esc(b.notiz)}</p>` : ""}
       <h3>Stunden (${fmt(s.std)} h)</h3>
@@ -446,7 +495,11 @@ function ansichtBericht(id) {
       ${masse.length ? `<table><tr><th>Bereich</th><th>Was</th><th>Maße</th><th class="r">Ergebnis</th></tr>
         ${masse.map((m) => `<tr><td>${esc(m.bereich)}</td><td>${esc(m.bezeichnung)}${m.notiz ? ` <small>(${esc(m.notiz)})</small>` : ""}</td><td>${massText(m)}</td><td class="r">${massWerte(m)}</td></tr>`).join("")}</table>` : "<p>–</p>"}
       ${plaene.map((p) => `<h3>Grundriss: ${esc(p.name)}</h3><div class="bericht-plan" data-plan="${p.id}"></div>`).join("")}
+      ${fotoListe.length && mitFotos ? `<h3>Fotos</h3><div class="bericht-fotos">${fotoListe.map((f) => `
+        <figure><img data-gross="${f.id}" src="${f.thumb}" alt=""><figcaption>${datum(f.datum)}${f.zeit ? " " + f.zeit : ""}${f.notiz ? " – " + esc(f.notiz) : ""}</figcaption></figure>`).join("")}</div>` : ""}
     </article>`;
+  $("#mit-fotos")?.addEventListener("change", async (e) => { await store.setMeta("berichtFotos", e.target.checked); zeigen(); });
+  inhalt.querySelectorAll("[data-gross]").forEach(async (img) => { const u = await fotos.grossUrl(img.dataset.gross); if (u) img.src = u; });
   inhalt.querySelectorAll("[data-plan]").forEach((el) => {
     el.append(vorschauSvg(store.get(el.dataset.plan).elemente, { beschriftet: true, breite: 680 }));
   });
@@ -542,7 +595,9 @@ function csvExport() {
 }
 
 // ---------- Routing ----------
+let offenerBetrachter = null;
 function zeigen() {
+  if (offenerBetrachter) { const b = offenerBetrachter; offenerBetrachter = null; b.schliessen(true); }
   if (aktuellerEditor) { aktuellerEditor.schliessen(); aktuellerEditor = null; }
   document.body.classList.remove("vollbild");
   const teile = location.hash.replace(/^#\/?/, "").split("/");
@@ -565,7 +620,7 @@ window.addEventListener("hashchange", () => {
 let neuZeichnenAusstehend = false;
 store.beiAenderung((quelle) => {
   if (quelle !== "sync") return;
-  if (aktuellerEditor || dialog.open || document.activeElement?.id === "suche") { neuZeichnenAusstehend = true; return; }
+  if (aktuellerEditor || offenerBetrachter || dialog.open || document.activeElement?.id === "suche") { neuZeichnenAusstehend = true; return; }
   zeigen();
 });
 dialog.addEventListener("close", () => { if (neuZeichnenAusstehend && !aktuellerEditor) { neuZeichnenAusstehend = false; setTimeout(zeigen, 0); } });

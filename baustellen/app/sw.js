@@ -1,10 +1,10 @@
 // Service Worker: hält die App-Dateien auf dem Gerät vor, damit die App
 // auch ohne Verbindung zum Server (z.B. auf der Baustelle) startet.
 // Die Daten selbst liegen ohnehin auf dem Gerät (IndexedDB).
-const VERSION = "baustellen-v1";
+const VERSION = "baustellen-v2";
 const DATEIEN = [
   "./", "index.html", "style.css", "manifest.webmanifest",
-  "js/app.js", "js/store.js", "js/sync.js", "js/grundriss.js",
+  "js/app.js", "js/store.js", "js/sync.js", "js/grundriss.js", "js/fotos.js",
   "icons/icon.svg", "icons/icon-192.png",
 ];
 

@@ -9,7 +9,8 @@ Sobald ein Gerät den **kleinen Server auf deinem PC zu Hause** erreicht, gleich
 - **Grundriss zeichnen**: Wände, Fenster, Türen, Hilfslinien und Raumnamen. Die Längen erscheinen automatisch, und eine Wand lässt sich auch exakt per Zahl auf Länge bringen. Alles rastet im 10-cm-Raster und an vorhandenen Ecken ein. Zoomen geht mit zwei Fingern oder dem Mausrad, außerdem gibt es Rückgängig und den Export als Bild (PNG).
 - **Stunden**: Datum, wer, von–bis, Pause und Tätigkeit. Aus von–bis und Pause werden die Stunden automatisch berechnet. Es gibt eine Summe pro Person.
 - **Zusatzmaterial**: Menge, Einheit, Preis und Summe. Bekanntes Material wird vorgeschlagen, inklusive des letzten Preises.
-- **Bericht** pro Baustelle zum Drucken oder als PDF (Stunden, Material, Maße, Grundrisse)
+- **Fotos** pro Baustelle: direkt mit der Kamera aufnehmen oder mehrere aus der Galerie wählen. Die Fotos sind nach Tag sortiert und bekommen eine Notiz. In der Vollbild-Ansicht blätterst du per Wischen oder mit den Pfeiltasten und kannst ein Foto herunterladen. Die App verkleinert jedes Foto automatisch auf max. 1920 px (ca. 200–400 KB).
+- **Bericht** pro Baustelle zum Drucken oder als PDF (Stunden, Material, Maße, Grundrisse und auf Wunsch Fotos)
 - **Export** aller Stunden und des Materials als CSV für Excel. Außerdem gibt es eine **Sicherung** als Datei, und der Server legt jeden Tag automatisch eine Sicherung an.
 
 Oben rechts siehst du immer den Sync-Stand:
@@ -88,15 +89,19 @@ Das gleiche Passwort trägst du dann in der App unter **⚙ Einstellungen → Sy
 - Jede Änderung wird **sofort auf dem Gerät** gespeichert.
 - Ist der Server erreichbar, gleicht die App alles innerhalb weniger Sekunden ab. Das passiert auch beim Öffnen der App und danach alle 30 Sekunden.
 - Wurde derselbe Eintrag auf zwei Geräten geändert, gewinnt die **neuere Änderung**.
+- **Fotos:** Mit den normalen Daten wird nur ein kleines Vorschaubild abgeglichen. Das Foto in voller Größe wird beim Sync
+  getrennt hoch- bzw. heruntergeladen. Bis dahin zeigt ein anderes Gerät die Vorschau an.
 - Gelöschte Einträge verschwinden auch auf den anderen Geräten. Wird eine Baustelle gelöscht, gehen ihre Maße, Stunden, Materialien und Pläne mit.
 
 ## Datensicherung
 
-- Der Server speichert alles in `baustellen/daten/daten.json`
-  und legt **jeden Tag** eine Kopie in `daten/sicherungen/` ab. Die letzten 30 Tage bleiben erhalten.
-- 👉 Den Ordner `daten` ab und zu auf einen USB-Stick oder in eine Cloud kopieren.
+- Der Server speichert alles in `baustellen/daten/daten.json`, die Fotos als normale JPG-Dateien in `daten/fotos/`.
+  Gelöschte Fotos verschiebt er nach `daten/fotos/geloescht/`, sie sind also nicht sofort weg.
+- Von `daten.json` legt er **jeden Tag** eine Kopie in `daten/sicherungen/` ab. Die letzten 30 Tage bleiben erhalten.
+- 👉 Den **ganzen** Ordner `daten` (inklusive Fotos) ab und zu auf einen USB-Stick oder in eine Cloud kopieren.
 - Wiederherstellen: Server beenden, die gewünschte Sicherung als `daten/daten.json` zurückkopieren und den Server neu starten.
-- Zusätzlich lässt sich in der App unter **⚙ → Sicherung speichern** jederzeit alles als Datei sichern und wieder einspielen.
+- Zusätzlich lässt sich in der App unter **⚙ → Sicherung speichern** jederzeit alles als Datei sichern und wieder einspielen
+  (diese Datei enthält von den Fotos nur die Vorschaubilder).
 
 ## Aufbau (für Entwickler)
 
@@ -110,9 +115,11 @@ app/js/app.js        Ansichten, Formulare, Bericht, Export
 app/js/store.js      Lokale Datenhaltung (IndexedDB), Löschmarken
 app/js/sync.js       Abgleich mit dem Server (Änderungen seit letzter Sequenznummer)
 app/js/grundriss.js  Grundriss-Editor (SVG)
+app/js/fotos.js      Fotos verkleinern, Vollbild-Ansicht
 app/sw.js            Service Worker (App offline verfügbar, nur über https/localhost)
 daten/               Datenbestand + tägliche Sicherungen (wird angelegt, nicht im Git)
 ```
 
 Sync-Protokoll: `POST /api/sync { since, changes[] }` liefert `{ seq, records[] }`. Jeder Datensatz trägt
 `id`, `typ`, `updatedAt`, `dev` und optional `deleted`. Konflikte entscheidet die neuere Änderung (`updatedAt`).
+Fotos: `PUT /api/foto/<id>` (JPEG) und `GET /api/foto/<id>`. Ein Foto-Datensatz enthält ein Vorschaubild (`thumb`).
