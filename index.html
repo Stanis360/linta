@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Werkstatt</title>
+  <meta name="theme-color" content="#1f3a5f">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Werkstatt">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-180.png">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <!-- Login -->
+  <section id="login" hidden>
+    <form class="login-box">
+      <img src="icons/icon.svg" alt="" width="72" height="72">
+      <h1 id="werkstatt-name">Werkstatt</h1>
+      <div id="login-felder">
+        <label class="feld"><span>E-Mail</span><input name="email" type="email" autocomplete="username"></label>
+        <label class="feld"><span>Passwort</span><input name="passwort" type="password" autocomplete="current-password"></label>
+      </div>
+      <p id="demo-hinweis" class="hinweis" hidden>
+        <b>Demo-Modus:</b> Es ist noch keine Datenbank eingerichtet.
+        Daten bleiben nur in diesem Browser gespeichert und werden nicht synchronisiert.
+      </p>
+      <button class="btn primaer breit" type="submit">Anmelden</button>
+    </form>
+  </section>
+
+  <!-- App -->
+  <div id="app" hidden>
+    <header class="kopf">
+      <a id="zurueck" class="kopf-knopf" href="#" hidden aria-label="Zurück">‹</a>
+      <h1 id="titel"></h1>
+      <button id="aktion" class="kopf-knopf rechts" hidden></button>
+    </header>
+    <div id="demo-banner" class="demo-banner" hidden>Demo-Modus – Daten nur auf diesem Gerät</div>
+    <main id="inhalt"></main>
+    <footer class="fuss"><button id="abmelden" class="btn-text">Abmelden</button></footer>
+    <nav class="tabs">
+      <a href="#/start" data-tab="start"><span>🏠</span>Start</a>
+      <a href="#/kunden" data-tab="kunden"><span>👤</span>Kunden</a>
+      <a href="#/termine" data-tab="termine"><span>📅</span>Termine</a>
+      <a href="#/teile" data-tab="teile"><span>🔧</span>Teile</a>
+    </nav>
+  </div>
+
+  <script src="config.js"></script>
+  <script src="vendor/supabase.js"></script>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
