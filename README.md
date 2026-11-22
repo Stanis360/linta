@@ -1,7 +1,5 @@
 # Werkstatt-App
 
-> In diesem Repository liegt außerdem die **Baustellen-App** (Baustellen, Maße, Grundriss, Stunden, Material, Sync im Heimnetz): siehe [`baustellen/README.md`](baustellen/README.md).
-
 Eine einfache App für eine Kfz-Werkstatt. Sie läuft auf **Handy, Tablet und PC**, und alle Daten werden **automatisch zwischen den Geräten synchronisiert**.
 
 **Funktionen**
