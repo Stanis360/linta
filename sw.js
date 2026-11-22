@@ -1,8 +1,8 @@
 // Service Worker: speichert nur die App-Dateien zwischen, damit die App schnell startet.
 // Daten kommen immer live aus der Datenbank.
-const VERSION = "werkstatt-v1";
+const VERSION = "werkstatt-v2";
 const DATEIEN = [
-  "./", "index.html", "config.js", "css/style.css", "js/app.js", "js/db.js",
+  "./", "index.html", "config.js", "css/style.css", "js/app.js", "js/db.js", "js/papierkorb.js", "js/sicherung.js", "vendor/jszip.min.js",
   "vendor/supabase.js", "manifest.webmanifest", "icons/icon.svg", "icons/icon-192.png",
 ];
 

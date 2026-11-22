@@ -1,4 +1,6 @@
 import { db, DEMO } from "./db.js";
+import { inPapierkorb, wiederherstellen, endgueltigLoeschen, tageUebrig, aufraeumen, AUFBEWAHRUNG_TAGE } from "./papierkorb.js";
+import { sicherungErstellen, sicherungEinspielen, letzteSicherung } from "./sicherung.js";
 
 const cfg = window.APP_CONFIG || {};
 const $ = (sel, el = document) => el.querySelector(sel);
@@ -69,8 +71,9 @@ function formular({ titel, felder, werte = {}, speichern, loeschen, setup }) {
   modal.addEventListener("click", (e) => e.target === modal && schliessen());
   if (loeschen) {
     $("[data-loeschen]", modal).onclick = async () => {
-      if (!confirm("Wirklich löschen?")) return;
+      if (!confirm(`In den Papierkorb verschieben?\nDu kannst es ${AUFBEWAHRUNG_TAGE} Tage lang wiederherstellen.`)) return;
       const ok = await versuch(async () => { await loeschen(); return true; });
+      if (ok) toast("In den Papierkorb verschoben");
       if (ok) { schliessen(); render(); }
     };
   }
@@ -211,20 +214,11 @@ function lightbox(foto, url) {
     zu(); render();
   };
   $("[data-weg]", box).onclick = async () => {
-    if (!confirm("Foto löschen?")) return;
-    await versuch(async () => {
-      await db.remove("fotos", foto.id);
-      await db.removePhotos([foto.pfad]);
-    });
+    if (!confirm("Foto in den Papierkorb verschieben?")) return;
+    if (await versuch(async () => { await inPapierkorb("foto", foto.id); return true; })) toast("In den Papierkorb verschoben");
     zu(); render();
   };
   document.body.append(box);
-}
-
-async function fotosVonFahrzeugenLoeschen(fahrzeugIds) {
-  const pfade = [];
-  for (const id of fahrzeugIds) pfade.push(...(await db.list("fotos", { eq: { fahrzeug_id: id } })).map((f) => f.pfad));
-  await db.removePhotos(pfade).catch(console.error);
 }
 
 // ---------------------------------------------------------------------
@@ -248,9 +242,7 @@ function kundeFormular(kunde) {
       else { const neu = await db.insert("kunden", d); location.hash = "#/kunde/" + neu.id; }
     },
     loeschen: kunde && (async () => {
-      const fz = await db.list("fahrzeuge", { eq: { kunde_id: kunde.id } });
-      await fotosVonFahrzeugenLoeschen(fz.map((f) => f.id));
-      await db.remove("kunden", kunde.id);
+      await inPapierkorb("kunde", kunde.id);
       location.hash = "#/kunden";
     }),
   });
@@ -277,8 +269,7 @@ function fahrzeugFormular(fahrzeug, kunde_id) {
       else { const neu = await db.insert("fahrzeuge", { ...d, kunde_id }); location.hash = "#/fahrzeug/" + neu.id; }
     },
     loeschen: fahrzeug && (async () => {
-      await fotosVonFahrzeugenLoeschen([fahrzeug.id]);
-      await db.remove("fahrzeuge", fahrzeug.id);
+      await inPapierkorb("fahrzeug", fahrzeug.id);
       location.hash = "#/kunde/" + fahrzeug.kunde_id;
     }),
   });
@@ -303,7 +294,7 @@ function auftragFormular(auftrag, fahrzeug) {
       if (d.km && d.km > (fahrzeug.km || 0)) await db.update("fahrzeuge", fahrzeug.id, { km: d.km });
     },
     loeschen: auftrag && (async () => {
-      await db.remove("auftraege", auftrag.id);
+      await inPapierkorb("auftrag", auftrag.id);
       location.hash = "#/fahrzeug/" + fahrzeug.id;
     }),
   });
@@ -358,7 +349,7 @@ function teilFormular(teil) {
       if (teil) await db.update("teile", teil.id, d);
       else await db.insert("teile", d);
     },
-    loeschen: teil && (() => db.remove("teile", teil.id)),
+    loeschen: teil && (() => inPapierkorb("teil", teil.id)),
   });
 }
 
@@ -396,7 +387,7 @@ async function terminFormular(termin, vorgabe = {}) {
       if (termin) await db.update("termine", termin.id, rest);
       else await db.insert("termine", { ...rest, erledigt: false });
     },
-    loeschen: termin && (() => db.remove("termine", termin.id)),
+    loeschen: termin && (() => inPapierkorb("termin", termin.id)),
   });
 }
 
@@ -474,6 +465,7 @@ async function viewStart() {
   return {
     titel: cfg.WERKSTATT_NAME || "Werkstatt",
     html: `
+      ${sicherungsErinnerung()}
       <div class="schnell">
         <button class="btn primaer" data-neu-termin>＋ Termin</button>
         <button class="btn primaer" data-neu-kunde>＋ Kunde</button>
@@ -743,6 +735,122 @@ async function viewTeile() {
   };
 }
 
+function sicherungsErinnerung() {
+  const l = letzteSicherung();
+  const tage = l ? Math.floor((Date.now() - new Date(l)) / 864e5) : null;
+  if (tage !== null && tage < 30) return "";
+  return `<a class="hinweis-karte" href="#/mehr">💾 ${tage === null ? "Auf diesem Gerät wurde noch keine Datensicherung gemacht." : `Letzte Datensicherung vor ${tage} Tagen.`} <b>Jetzt sichern ›</b></a>`;
+}
+
+const PK_SYMBOL = { kunde: "👤", fahrzeug: "🚗", auftrag: "📋", teil: "🔧", termin: "📅", foto: "📷" };
+const PK_NAME = { kunde: "Kunde", fahrzeug: "Fahrzeug", auftrag: "Auftrag", teil: "Teil", termin: "Termin", foto: "Foto" };
+
+function fortschrittsAnzeige() {
+  const info = document.createElement("div");
+  info.className = "toast";
+  document.body.append(info);
+  dialogOffen = true;
+  return {
+    setzen: (t) => (info.textContent = t),
+    fertig: () => { info.remove(); dialogOffen = false; },
+  };
+}
+
+async function viewMehr() {
+  const papierkorb = await db.list("papierkorb", { order: "created_at", asc: false });
+  const l = letzteSicherung();
+  const inhalt = (e) => {
+    const z = e.daten.zeilen || {};
+    const teile = [];
+    if (e.typ === "kunde" && z.fahrzeuge?.length) teile.push(`${z.fahrzeuge.length} Fahrzeug(e)`);
+    if (z.auftraege?.length && e.typ !== "auftrag") teile.push(`${z.auftraege.length} Auftrag/Aufträge`);
+    if (z.fotos?.length && e.typ !== "foto") teile.push(`${z.fotos.length} Foto(s)`);
+    return teile.length ? " · mit " + teile.join(", ") : "";
+  };
+  return {
+    titel: "Mehr",
+    html: `
+      <h2>Datensicherung</h2>
+      <div class="karte text-block">
+        <p>Lädt <b>alle Daten</b> als ZIP-Datei herunter: Kunden, Fahrzeuge, Aufträge, Termine, Teile und auf Wunsch alle Fotos.
+        Die Datei am besten auf einen USB-Stick oder in eine Cloud (z.B. Google Drive) kopieren. <b>Empfehlung: einmal im Monat.</b></p>
+        <p class="leise">Letzte Sicherung auf diesem Gerät: <b>${l ? datum(l) + ", " + uhrzeit(l) + " Uhr" : "noch nie"}</b></p>
+        <button class="btn primaer breit" data-sichern="1">💾 Sicherung mit Fotos herunterladen</button>
+        <button class="btn breit" data-sichern="0">Nur Daten, ohne Fotos (kleine Datei)</button>
+      </div>
+
+      <h2>Sicherung einspielen</h2>
+      <div class="karte text-block">
+        <p>Stellt alle Daten aus einer Sicherungsdatei wieder her. Vorhandene Einträge werden dabei auf den Stand der Sicherung gesetzt,
+        neuere Einträge bleiben erhalten.</p>
+        <label class="btn breit">📂 Sicherungsdatei auswählen …<input type="file" accept=".zip,application/zip" hidden data-einspielen></label>
+      </div>
+
+      <h2>Papierkorb (${papierkorb.length})
+        ${papierkorb.length ? `<button class="btn klein gefahr" data-leeren>Leeren</button>` : ""}</h2>
+      <div class="karte liste">
+        ${papierkorb.map((e) => `
+          <div class="zeile pk">
+            <div class="avatar">${PK_SYMBOL[e.typ] || "?"}</div>
+            <div class="inhalt">
+              <strong>${h(e.titel || PK_NAME[e.typ])}</strong>
+              <small>${PK_NAME[e.typ]}${h(inhalt(e))} · gelöscht ${datum(e.created_at)} · noch ${tageUebrig(e)} Tage</small>
+            </div>
+            <button class="btn klein" data-zurueck="${e.id}">Wiederherstellen</button>
+          </div>`).join("") || leer(`Leer. Gelöschtes bleibt hier ${AUFBEWAHRUNG_TAGE} Tage, danach wird es endgültig entfernt.`)}
+      </div>
+
+      <h2>Konto</h2>
+      <div class="karte liste">
+        <button class="zeile knopf-zeile" data-abmelden><div class="inhalt"><strong>Abmelden</strong>
+          <small>${DEMO ? "Demo-Modus – Daten nur in diesem Browser" : "Angemeldet – Daten werden synchronisiert"}</small></div>${pfeil}</button>
+      </div>
+    `,
+    nachher(root) {
+      $$("[data-sichern]", root).forEach((b) => (b.onclick = async () => {
+        const f = fortschrittsAnzeige();
+        const r = await versuch(() => sicherungErstellen({ mitFotos: b.dataset.sichern === "1", fortschritt: f.setzen }));
+        f.fertig();
+        if (r) {
+          toast(`Gespeichert: ${r.name} (${(r.groesse / 1048576).toLocaleString("de-DE", { maximumFractionDigits: 1 })} MB)`);
+          if (r.fehlend) toast(`${r.fehlend} Foto(s) konnten nicht geladen werden`, true);
+          render();
+        }
+      }));
+      const inp = $("[data-einspielen]", root);
+      inp.onchange = async () => {
+        const datei = inp.files[0];
+        inp.value = "";
+        if (!datei || !confirm(`Sicherung „${datei.name}“ einspielen?`)) return;
+        const f = fortschrittsAnzeige();
+        const r = await versuch(() => sicherungEinspielen(datei, f.setzen));
+        f.fertig();
+        if (r) {
+          const a = r.anzahl;
+          alert(`Sicherung vom ${datum(r.erstellt)} eingespielt:\n\n` +
+            `${a.kunden || 0} Kunden\n${a.fahrzeuge || 0} Fahrzeuge\n${a.auftraege || 0} Aufträge\n${a.termine || 0} Termine\n${a.teile || 0} Teile\n${a.fotos || 0} Fotos` +
+            (r.ohneDatei ? `\n\n${r.ohneDatei} Foto(s) waren nicht in der Sicherung enthalten und wurden übersprungen.` : ""));
+          render();
+        }
+      };
+      $$("[data-zurueck]", root).forEach((b) => (b.onclick = () => versuch(async () => {
+        b.disabled = true;
+        const e = papierkorb.find((x) => x.id === b.dataset.zurueck);
+        await wiederherstellen(e);
+        toast(`„${e.titel || PK_NAME[e.typ]}“ wiederhergestellt`);
+        render();
+      })));
+      const leeren = $("[data-leeren]", root);
+      if (leeren) leeren.onclick = () => versuch(async () => {
+        if (!confirm("Papierkorb endgültig leeren? Das kann nicht rückgängig gemacht werden.")) return;
+        for (const e of papierkorb) await endgueltigLoeschen(e);
+        render();
+      });
+      $("[data-abmelden]", root).onclick = () => confirm("Abmelden?") && db.signOut().then(() => location.reload());
+    },
+  };
+}
+
 function nichtGefunden() {
   return { titel: "Nicht gefunden", zurueck: "#/start", html: `<div class="karte">${leer("Dieser Eintrag existiert nicht (mehr).")}</div>` };
 }
@@ -752,9 +860,9 @@ function nichtGefunden() {
 // ---------------------------------------------------------------------
 const ROUTEN = {
   start: viewStart, kunden: viewKunden, kunde: viewKunde, fahrzeug: viewFahrzeug,
-  auftrag: viewAuftrag, termine: viewTermine, teile: viewTeile,
+  auftrag: viewAuftrag, termine: viewTermine, teile: viewTeile, mehr: viewMehr,
 };
-const TAB_VON = { start: "start", kunden: "kunden", kunde: "kunden", fahrzeug: "kunden", auftrag: "kunden", termine: "termine", teile: "teile" };
+const TAB_VON = { start: "start", kunden: "kunden", kunde: "kunden", fahrzeug: "kunden", auftrag: "kunden", termine: "termine", teile: "teile", mehr: "mehr" };
 
 let renderNr = 0;
 let letzteRoute = "";
@@ -818,7 +926,7 @@ function appStarten() {
   gestartet = true;
 
   window.addEventListener("hashchange", render);
-  $("#abmelden").onclick = () => confirm("Abmelden?") && db.signOut().then(() => location.reload());
+  aufraeumen().catch(console.error);
 
   let timer;
   db.onChange(() => {

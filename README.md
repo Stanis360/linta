@@ -11,6 +11,7 @@ Eine einfache App für eine Kfz-Werkstatt. Sie läuft auf **Handy, Tablet und PC
 - **Teile-Lager**: Bestand, Mindestbestand, Preise, Lagerort. Wird ein Teil in einen Auftrag eingetragen, bucht die App es automatisch aus dem Lager aus.
 - **Startseite**: Termine von heute und morgen, offene Aufträge, Teile zum Nachbestellen, TÜV bald fällig
 - **Suche** nach Name, Kennzeichen, Telefon oder FIN
+- **Papierkorb** (30 Tage) und **Datensicherung** als ZIP-Datei inkl. Fotos
 
 Ohne Einrichtung startet die App im **Demo-Modus**. Dann bleiben die Daten nur im Browser dieses einen Geräts, und es gibt keinen Sync.
 
@@ -86,10 +87,24 @@ Danach auf jedem Gerät mit derselben E-Mail und demselben Passwort anmelden. Fe
 Ein Foto braucht nach dem Verkleinern ca. 200–400 KB. 1 GB reicht also für etwa 3.000 Fotos.
 **Hinweis:** Im Gratis-Tarif pausiert Supabase ein Projekt nach 7 Tagen ohne Nutzung. Es lässt sich im Dashboard per Klick wieder starten, die Daten bleiben erhalten. Bei täglicher Nutzung passiert das nicht.
 
-## Datensicherung
+## Datensicherung & Papierkorb
 
-In Supabase unter **Table Editor** kann man jede Tabelle als CSV exportieren (z.B. einmal im Monat).
-Im Pro-Tarif macht Supabase automatisch tägliche Backups.
+**Papierkorb:** Alles, was gelöscht wird (Kunden, Fahrzeuge, Aufträge, Termine, Teile, Fotos), landet zuerst im
+Papierkorb, und zwar **inklusive aller zugehörigen Daten**. Ein gelöschter Kunde kommt also mit seinen Fahrzeugen, Aufträgen und Fotos zurück.
+Wiederherstellen geht unter **Mehr → Papierkorb**. Nach **30 Tagen** wird ein Eintrag endgültig entfernt.
+
+**Datensicherung:** Unter **Mehr → Datensicherung** lädt ein Klick alles als ZIP-Datei herunter:
+- `daten.json`: alle Daten zum Wiederherstellen
+- `tabellen/*.csv`: alle Daten zusätzlich als Tabellen, die sich in Excel öffnen lassen
+- `fotos/`: alle Fotos (wenn „mit Fotos“ gewählt)
+
+👉 **Einmal im Monat sichern** und die Datei auf einen USB-Stick oder in eine Cloud (Google Drive, OneDrive …) kopieren.
+Ist die letzte Sicherung auf dem Gerät länger als 30 Tage her, erinnert die Startseite daran.
+
+**Wiederherstellen:** **Mehr → Sicherung einspielen** und die ZIP-Datei auswählen. Das funktioniert auch mit einem
+neuen Supabase-Konto, falls das alte einmal verloren gehen sollte.
+
+Zusätzlich macht Supabase im Pro-Tarif automatisch tägliche Backups.
 
 ## Aufbau (für Entwickler)
 
@@ -99,9 +114,12 @@ config.js             Zugangsdaten (Supabase-URL + anon key)
 css/style.css         Design (inkl. Dark Mode)
 js/app.js             Ansichten, Formulare, Fotos, Routing
 js/db.js              Datenzugriff: Supabase oder Demo (localStorage)
+js/papierkorb.js      Papierkorb (30 Tage, inkl. abhängiger Daten)
+js/sicherung.js       Datensicherung als ZIP (JSON + CSV + Fotos) und Einspielen
 sw.js                 Service Worker (App-Dateien zwischenspeichern)
 supabase/schema.sql   Tabellen, Zugriffsschutz, Realtime, Foto-Speicher
 vendor/supabase.js    Supabase-Bibliothek v2.45.4 (MIT-Lizenz)
+vendor/jszip.min.js   JSZip v3.10.1 (MIT-Lizenz)
 ```
 
 Lokal testen: `python3 -m http.server 8080` im Projektordner, dann http://localhost:8080 öffnen.

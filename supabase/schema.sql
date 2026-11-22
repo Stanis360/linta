@@ -93,6 +93,16 @@ create table if not exists termine (
   created_at   timestamptz not null default now()
 );
 
+-- Papierkorb: gelöschte Einträge (inkl. abhängiger Daten) 30 Tage aufheben
+create table if not exists papierkorb (
+  id          uuid primary key default gen_random_uuid(),
+  user_id     uuid not null default auth.uid() references auth.users on delete cascade,
+  typ         text not null,
+  titel       text,
+  daten       jsonb not null,
+  created_at  timestamptz not null default now()
+);
+
 create index if not exists fahrzeuge_kunde_idx     on fahrzeuge (kunde_id);
 create index if not exists auftraege_fahrzeug_idx  on auftraege (fahrzeug_id);
 create index if not exists auftrag_teile_idx       on auftrag_teile (auftrag_id);
@@ -104,7 +114,7 @@ create index if not exists termine_beginn_idx      on termine (beginn);
 do $$
 declare t text;
 begin
-  foreach t in array array['kunden','fahrzeuge','auftraege','teile','auftrag_teile','fotos','termine']
+  foreach t in array array['kunden','fahrzeuge','auftraege','teile','auftrag_teile','fotos','termine','papierkorb']
   loop
     execute format('alter table %I enable row level security', t);
     execute format('drop policy if exists "nur eigene daten" on %I', t);
@@ -119,7 +129,7 @@ end $$;
 do $$
 declare t text;
 begin
-  foreach t in array array['kunden','fahrzeuge','auftraege','teile','auftrag_teile','fotos','termine']
+  foreach t in array array['kunden','fahrzeuge','auftraege','teile','auftrag_teile','fotos','termine','papierkorb']
   loop
     if not exists (
       select 1 from pg_publication_tables
@@ -147,4 +157,9 @@ create policy "fotos eigene hochladen" on storage.objects for insert to authenti
   with check (bucket_id = 'fotos' and (storage.foldername(name))[1] = auth.uid()::text);
 
 create policy "fotos eigene loeschen" on storage.objects for delete to authenticated
+  using (bucket_id = 'fotos' and (storage.foldername(name))[1] = auth.uid()::text);
+
+-- nötig, damit beim Wiederherstellen einer Sicherung Fotos überschrieben werden dürfen
+drop policy if exists "fotos eigene aendern" on storage.objects;
+create policy "fotos eigene aendern" on storage.objects for update to authenticated
   using (bucket_id = 'fotos' and (storage.foldername(name))[1] = auth.uid()::text);

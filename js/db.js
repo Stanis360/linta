@@ -57,12 +57,21 @@ function supabaseBackend() {
     async remove(table, id) {
       check(await sb.from(table).delete().eq("id", id));
     },
+    // Zeilen mit vorhandener id einfügen oder überschreiben (Papierkorb / Sicherung)
+    async upsert(table, rows) {
+      for (let i = 0; i < rows.length; i += 500) {
+        check(await sb.from(table).upsert(rows.slice(i, i + 500)));
+      }
+    },
 
-    async uploadPhoto(blob) {
+    async uploadPhoto(blob, dateiname) {
       const { data } = await sb.auth.getUser();
-      const path = `${data.user.id}/${crypto.randomUUID()}.jpg`;
-      check(await sb.storage.from("fotos").upload(path, blob, { contentType: "image/jpeg" }));
+      const path = `${data.user.id}/${dateiname || crypto.randomUUID() + ".jpg"}`;
+      check(await sb.storage.from("fotos").upload(path, blob, { contentType: "image/jpeg", upsert: true }));
       return path;
+    },
+    async downloadPhoto(path) {
+      return check(await sb.storage.from("fotos").download(path));
     },
     async photoUrls(paths) {
       const now = Date.now();
@@ -166,7 +175,7 @@ function demoBackend() {
       return load(table).find((r) => r.id === id) || null;
     },
     async insert(table, obj) {
-      const row = { ...defaults[table], ...obj, id: crypto.randomUUID(), created_at: new Date().toISOString() };
+      const row = { ...defaults[table], ...obj, id: obj.id || crypto.randomUUID(), created_at: obj.created_at || new Date().toISOString() };
       save(table, [...load(table), row]);
       changed();
       return row;
@@ -181,9 +190,19 @@ function demoBackend() {
       removeRec(table, id);
       changed();
     },
+    async upsert(table, rows) {
+      const alle = load(table);
+      for (const r of rows) {
+        const i = alle.findIndex((x) => x.id === r.id);
+        const row = { ...defaults[table], created_at: new Date().toISOString(), ...r };
+        if (i >= 0) alle[i] = row; else alle.push(row);
+      }
+      save(table, alle);
+      changed();
+    },
 
-    async uploadPhoto(blob) {
-      const path = "demo/" + crypto.randomUUID() + ".jpg";
+    async uploadPhoto(blob, dateiname) {
+      const path = "demo/" + (dateiname || crypto.randomUUID() + ".jpg");
       const dataUrl = await new Promise((res) => {
         const r = new FileReader();
         r.onload = () => res(r.result);
@@ -201,6 +220,11 @@ function demoBackend() {
     },
     async removePhotos(paths) {
       paths.forEach((p) => localStorage.removeItem(key("foto_" + p)));
+    },
+    async downloadPhoto(path) {
+      const url = localStorage.getItem(key("foto_" + path));
+      if (!url) throw new Error("Foto fehlt");
+      return (await fetch(url)).blob();
     },
 
     onChange(cb) {
