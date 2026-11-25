@@ -4,6 +4,7 @@ import {
   kalenderEinstellungen, kalenderSpeichern, kalenderArt, inKalenderEintragen, ART_NAMEN, istIOS,
   ABO_MOEGLICH, aboLaden, aboErstellen, aboNeuerLink, aboBeenden, aboLink, aboWebcal, aboTesten,
 } from "./kalender.js";
+import { nachrichtSenden } from "./nachrichten.js";
 import { sicherungErstellen, sicherungEinspielen, letzteSicherung } from "./sicherung.js";
 
 const cfg = window.APP_CONFIG || {};
@@ -234,6 +235,7 @@ const KUNDE_FELDER = [
   { name: "email", label: "E-Mail", typ: "email" },
   { name: "adresse", label: "Adresse", typ: "textarea" },
   { name: "notizen", label: "Notizen", typ: "textarea" },
+  { name: "kontakt_erlaubt", label: "Kunde ist einverstanden, per WhatsApp/SMS an TÜV und Termine erinnert zu werden", typ: "checkbox" },
 ];
 
 function kundeFormular(kunde) {
@@ -263,12 +265,18 @@ function fahrzeugFormular(fahrzeug, kunde_id) {
       { name: "km", label: "km-Stand", typ: "ganzzahl", halb: true },
       { name: "fin", label: "Fahrgestellnummer (FIN)", gross: true },
       { name: "tuev", label: "TÜV / HU fällig", typ: "datum" },
+      { name: "hsn", label: "HSN (Schlüsselnr. 2.1)", halb: true, platzhalter: "0603", gross: true },
+      { name: "tsn", label: "TSN (Schlüsselnr. 2.2)", halb: true, platzhalter: "BJM", gross: true },
+      { name: "motorcode", label: "Motorcode", halb: true, platzhalter: "CXXB", gross: true },
+      { name: "reifen", label: "Reifengröße", halb: true, platzhalter: "205/55 R16 91V" },
+      { name: "oel", label: "Motoröl (Sorte / Norm)", halb: true, platzhalter: "5W-30 VW 507.00" },
+      { name: "oelmenge", label: "Ölmenge (Liter)", typ: "zahl", halb: true, platzhalter: "4,3" },
       { name: "notizen", label: "Notizen", typ: "textarea" },
     ],
     werte: fahrzeug || {},
     async speichern(d) {
       if (d.kennzeichen) d.kennzeichen = d.kennzeichen.toUpperCase();
-      if (d.fin) d.fin = d.fin.toUpperCase();
+      for (const k of ["fin", "hsn", "tsn", "motorcode"]) if (d[k]) d[k] = d[k].toUpperCase();
       if (fahrzeug) await db.update("fahrzeuge", fahrzeug.id, d);
       else { const neu = await db.insert("fahrzeuge", { ...d, kunde_id }); location.hash = "#/fahrzeug/" + neu.id; }
     },
@@ -386,6 +394,15 @@ async function terminFormular(termin, vorgabe = {}) {
         knopf.onclick = () => inKalenderEintragen(termin, kunden.find((k) => k.id === termin.kunde_id), fahrzeuge.find((f) => f.id === termin.fahrzeug_id));
         $(".sheet-inhalt", form).insertBefore(knopf, $("[data-loeschen]", form));
       }
+      const tk = termin && kunden.find((k) => k.id === termin.kunde_id);
+      if (tk?.telefon && !termin.erledigt) {
+        const knopf = document.createElement("button");
+        knopf.type = "button";
+        knopf.className = "btn breit";
+        knopf.textContent = "💬 Kunden an Termin erinnern";
+        knopf.onclick = () => nachrichtSenden({ art: "termin", kunde: tk, termin, fahrzeug: fahrzeuge.find((f) => f.id === termin.fahrzeug_id) });
+        $(".sheet-inhalt", form).insertBefore(knopf, $("[data-loeschen]", form));
+      }
       form.elements.kunde_id.onchange = () => {
         const opt = fzOptionen(form.elements.kunde_id.value);
         form.elements.fahrzeug_id.innerHTML = opt.map(([v, l]) => `<option value="${h(v)}">${h(l)}</option>`).join("");
@@ -485,6 +502,30 @@ const tuevBadge = (f) => {
 
 const leer = (text) => `<p class="leer">${h(text)}</p>`;
 
+function tuevErinnern(fahrzeug, kunde) {
+  nachrichtSenden({
+    art: "tuev", kunde, fahrzeug, werbung: true,
+    gesendet: ({ zustimmung }) => versuch(async () => {
+      await db.update("fahrzeuge", fahrzeug.id, { tuev_erinnert: heute() });
+      if (zustimmung) await db.update("kunden", kunde.id, { kontakt_erlaubt: true });
+      render();
+    }),
+  });
+}
+
+// ISO-Kalenderwoche
+function kalenderwoche(d) {
+  const x = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const tag = x.getUTCDay() || 7;
+  x.setUTCDate(x.getUTCDate() + 4 - tag);
+  return Math.ceil(((x - Date.UTC(x.getUTCFullYear(), 0, 1)) / 864e5 + 1) / 7);
+}
+function montagDerWoche(d) {
+  const m = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  m.setDate(m.getDate() - ((m.getDay() + 6) % 7));
+  return m;
+}
+
 // ---------------------------------------------------------------------
 //  Ansichten
 // ---------------------------------------------------------------------
@@ -518,7 +559,7 @@ async function viewStart() {
       ${knapp.length ? `<h2>Teile nachbestellen</h2><div class="karte liste">${knapp.map((t) => `
         <a class="zeile" href="#/teile"><div class="inhalt"><strong>${h(t.name)}</strong><small>${h(t.artikelnr || "")}</small></div>
         <span class="badge rot">${zahl(t.bestand)} / min. ${zahl(t.mindestbestand)}</span></a>`).join("")}</div>` : ""}
-      ${tuev.length ? `<h2>TÜV / HU bald fällig</h2><div class="karte liste">${tuev.map((f) => `
+      ${tuev.length ? `<h2>TÜV / HU bald fällig <a class="btn klein" href="#/erinnerungen">Kunden erinnern ›</a></h2><div class="karte liste">${tuev.map((f) => `
         <a class="zeile" href="#/fahrzeug/${f.id}"><div class="inhalt"><strong>${h(f.kennzeichen || fzName(f))}</strong>
         <small>${h(fzName(f))} · ${h(km[f.kunde_id]?.name || "")} · ${datum(f.tuev)}</small></div>${tuevBadge(f)}</a>`).join("")}</div>` : ""}
     `,
@@ -538,7 +579,7 @@ async function viewKunden() {
     const q = suchtext.toLowerCase().replace(/[\s-]/g, "");
     const treffer = kunden.filter((k) => {
       if (!q) return true;
-      const text = [k.name, k.telefon, k.email, ...fzVon(k.id).flatMap((f) => [f.kennzeichen, f.marke, f.modell, f.fin])].join("|").toLowerCase().replace(/[\s-]/g, "");
+      const text = [k.name, k.telefon, k.email, ...fzVon(k.id).flatMap((f) => [f.kennzeichen, f.marke, f.modell, f.fin, f.motorcode, f.hsn && f.tsn && f.hsn + f.tsn])].join("|").toLowerCase().replace(/[\s-]/g, "");
       return text.includes(q);
     });
     return treffer.map((k) => `
@@ -553,7 +594,7 @@ async function viewKunden() {
     titel: "Kunden",
     aktion: ["＋", () => kundeFormular()],
     html: `
-      <input type="search" class="suche" placeholder="Suche: Name, Kennzeichen, Telefon, FIN …" value="${h(suchtext)}">
+      <input type="search" class="suche" placeholder="Suche: Name, Kennzeichen, Telefon, FIN, Motorcode …" value="${h(suchtext)}">
       <div class="karte liste" id="kliste">${liste()}</div>`,
     nachher(root) {
       const s = $(".suche", root);
@@ -581,9 +622,10 @@ async function viewKunde(id) {
         ${kunde.email ? `<a class="info-zeile" href="mailto:${h(kunde.email)}"><span>E-Mail</span><b>${h(kunde.email)}</b></a>` : ""}
         ${kunde.adresse ? `<a class="info-zeile" target="_blank" rel="noopener" href="https://maps.google.com/?q=${encodeURIComponent(kunde.adresse)}"><span>Adresse</span><b class="mehrzeilig">${h(kunde.adresse)}</b></a>` : ""}
         ${kunde.notizen ? `<div class="info-zeile"><span>Notizen</span><b class="mehrzeilig">${h(kunde.notizen)}</b></div>` : ""}
+        ${kunde.telefon ? `<div class="info-zeile"><span>Erinnerungen</span><b>${kunde.kontakt_erlaubt ? "✓ erlaubt" : "nicht zugestimmt"}</b></div>` : ""}
         ${!kunde.telefon && !kunde.email && !kunde.adresse && !kunde.notizen ? leer("Keine Kontaktdaten") : ""}
       </div>
-      ${tel ? `<div class="schnell"><a class="btn" href="tel:${h(tel)}">📞 Anrufen</a><a class="btn" href="sms:${h(tel)}">💬 SMS</a></div>` : ""}
+      ${tel ? `<div class="schnell"><a class="btn" href="tel:${h(tel)}">📞 Anrufen</a><button class="btn" data-nachricht>💬 Nachricht</button></div>` : ""}
       <h2>Fahrzeuge <button class="btn klein" data-neu-fz>＋ Fahrzeug</button></h2>
       <div class="karte liste">${fahrzeuge.map((f) => `
         <a class="zeile" href="#/fahrzeug/${f.id}">
@@ -596,6 +638,8 @@ async function viewKunde(id) {
     `,
     nachher(root) {
       $("[data-neu-fz]", root).onclick = () => fahrzeugFormular(null, id);
+      const nb = $("[data-nachricht]", root);
+      if (nb) nb.onclick = () => nachrichtSenden({ art: "frei", kunde });
       $("[data-neu-termin]", root).onclick = () => terminFormular(null, { kunde_id: id, fahrzeug_id: fahrzeuge.length === 1 ? fahrzeuge[0].id : "" });
       terminZeilenAktivieren(root, termine);
     },
@@ -622,9 +666,18 @@ async function viewFahrzeug(id) {
         ${zeile("Baujahr", h(f.baujahr))}
         ${zeile("km-Stand", f.km ? zahl(f.km) + " km" : "")}
         ${zeile("FIN", `<span class="mono">${h(f.fin)}</span>`.replace(/<span class="mono"><\/span>/, ""))}
-        ${zeile("TÜV / HU", datum(f.tuev))}
+        ${zeile("TÜV / HU", datum(f.tuev) + (f.tuev_erinnert ? ` <small class="leise">(erinnert am ${datum(f.tuev_erinnert)})</small>` : ""))}
         ${f.notizen ? `<div class="info-zeile"><span>Notizen</span><b class="mehrzeilig">${h(f.notizen)}</b></div>` : ""}
       </div>
+      ${f.tuev && tageBis(f.tuev) <= 60 && kunde?.telefon ? `<div class="schnell"><button class="btn" data-tuev-erinnern>💬 Kunden an TÜV erinnern</button></div>` : ""}
+      ${f.hsn || f.tsn || f.motorcode || f.oel || f.oelmenge || f.reifen ? `
+      <h2>Werkstatt-Daten</h2>
+      <div class="karte info">
+        ${zeile("HSN / TSN", [f.hsn, f.tsn].filter(Boolean).map(h).join(" / "))}
+        ${zeile("Motorcode", h(f.motorcode))}
+        ${zeile("Motoröl", [h(f.oel), f.oelmenge && zahl(f.oelmenge) + " Liter"].filter(Boolean).join(" · "))}
+        ${zeile("Reifen", h(f.reifen))}
+      </div>` : ""}
       <h2>Aufträge / Historie <button class="btn klein" data-neu-auftrag>＋ Auftrag</button></h2>
       <div class="karte liste">${auftraege.map((a) => auftragZeile(a)).join("") || leer("Noch keine Aufträge")}</div>
       <h2>Fotos (${fotos.length})</h2>
@@ -632,6 +685,8 @@ async function viewFahrzeug(id) {
     `,
     async nachher(root) {
       $("[data-neu-auftrag]", root).onclick = () => auftragFormular(null, f);
+      const tb = $("[data-tuev-erinnern]", root);
+      if (tb) tb.onclick = () => tuevErinnern(f, kunde);
       await galerieAktivieren(root, fotos);
     },
   };
@@ -660,6 +715,7 @@ async function viewAuftrag(id) {
         ${a.km ? `<div class="info-zeile"><span>km-Stand</span><b>${zahl(a.km)} km</b></div>` : ""}
       </div>
       <div class="segment">${Object.entries(STATUS).map(([k, l]) => `<button class="${a.status === k ? "an " + k : ""}" data-status="${k}">${l}</button>`).join("")}</div>
+      ${kunde?.telefon ? `<div class="schnell"><button class="btn" data-benachrichtigen>💬 ${a.status === "fertig" ? "Kunde: Auto ist fertig" : "Kunde benachrichtigen"}</button></div>` : ""}
       <h2>Arbeiten</h2>
       <div class="karte text">${a.beschreibung ? h(a.beschreibung) : leer("Keine Beschreibung – über „Bearbeiten“ hinzufügen")}</div>
       <h2>Teile <button class="btn klein" data-neu-teil>＋ Teil</button></h2>
@@ -680,7 +736,16 @@ async function viewAuftrag(id) {
       ${galerieHtml(fotos, { fahrzeug_id: a.fahrzeug_id, auftrag_id: id })}
     `,
     async nachher(root) {
-      $$("[data-status]", root).forEach((b) => (b.onclick = () => versuch(async () => { await db.update("auftraege", id, { status: b.dataset.status }); render(); })));
+      const fertigMelden = () => nachrichtSenden({ art: a.status === "fertig" ? "fertig" : "frei", kunde, fahrzeug: f, gesamt });
+      $$("[data-status]", root).forEach((b) => (b.onclick = () => versuch(async () => {
+        const neu = b.dataset.status;
+        await db.update("auftraege", id, { status: neu });
+        await render();
+        // Beim Wechsel auf "Fertig" direkt anbieten, den Kunden zu informieren
+        if (neu === "fertig" && a.status !== "fertig" && kunde?.telefon) nachrichtSenden({ art: "fertig", kunde, fahrzeug: f, gesamt });
+      })));
+      const bn = $("[data-benachrichtigen]", root);
+      if (bn) bn.onclick = fertigMelden;
       $("[data-neu-teil]", root).onclick = () => auftragTeilFormular(a);
       $$("[data-teil-weg]", root).forEach((b) => (b.onclick = () => versuch(async () => {
         const t = teile.find((x) => x.id === b.dataset.teilWeg);
@@ -697,13 +762,99 @@ async function viewAuftrag(id) {
   };
 }
 
-let terminFilter = "kommend";
+let terminFilter = (() => { try { return localStorage.getItem("werkstatt_terminansicht") || "woche"; } catch { return "woche"; } })();
+let wocheVersatz = 0;
+
+function wochenHtml(termine, km, fm) {
+  const mo = montagDerWoche(new Date());
+  mo.setDate(mo.getDate() + 7 * wocheVersatz);
+  const tage = Array.from({ length: 7 }, (_, i) => { const d = new Date(mo); d.setDate(mo.getDate() + i); return d; });
+  const kurz = (d) => d.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" }).replace(/\.?$/, ".");
+  const h0 = heute();
+  const anzahl = termine.filter((t) => { const k = tagKey(t.beginn); return k >= tagKey(tage[0]) && k <= tagKey(tage[6]); }).length;
+  return `
+    <div class="woche-nav">
+      <button class="btn klein" data-woche="-1" aria-label="Vorige Woche">‹</button>
+      <div class="woche-titel">
+        <strong>KW ${kalenderwoche(mo)}${wocheVersatz === 0 ? " · diese Woche" : ""}</strong>
+        <small>${kurz(tage[0])} – ${kurz(tage[6])}${tage[6].getFullYear()} · ${anzahl} Termin${anzahl === 1 ? "" : "e"}</small>
+      </div>
+      <button class="btn klein" data-woche="1" aria-label="Nächste Woche">›</button>
+    </div>
+    ${wocheVersatz !== 0 ? `<div class="mitte"><button class="btn-text" data-woche="0">Zurück zu dieser Woche</button></div>` : ""}
+    <div class="woche">
+      ${tage.map((d) => {
+        const key = tagKey(d);
+        const ts = termine.filter((t) => tagKey(t.beginn) === key);
+        const we = d.getDay() === 0 || d.getDay() === 6;
+        return `
+          <div class="tag${key === h0 ? " heute" : ""}${we ? " wochenende" : ""}${key < h0 ? " vorbei" : ""}">
+            <button class="tag-kopf" data-neu-tag="${key}" title="Neuer Termin an diesem Tag">
+              <span><b>${d.toLocaleDateString("de-DE", { weekday: "short" })}</b> ${kurz(d)}${key === h0 ? " · heute" : ""}</span><span class="plus">＋</span>
+            </button>
+            ${ts.map((t) => {
+              const f = fm[t.fahrzeug_id], k = km[t.kunde_id];
+              return `<div class="wt${t.erledigt ? " erledigt" : ""}" data-termin="${t.id}">
+                <span class="wt-zeit">${uhrzeit(t.beginn)}</span>
+                <span class="wt-text"><b>${h(t.titel)}</b><small>${h([f?.kennzeichen, k?.name].filter(Boolean).join(" · "))}</small></span>
+              </div>`;
+            }).join("") || `<p class="frei">frei</p>`}
+          </div>`;
+      }).join("")}
+    </div>`;
+}
+
+async function viewErinnerungen() {
+  const [fahrzeuge, kunden] = await Promise.all([db.list("fahrzeuge"), db.list("kunden")]);
+  const km = Object.fromEntries(kunden.map((k) => [k.id, k]));
+  const jetzt = new Date();
+  const monatEnde = (plus) => tagKey(new Date(jetzt.getFullYear(), jetzt.getMonth() + plus + 1, 0));
+  const faellig = fahrzeuge
+    .filter((f) => f.tuev && tageBis(f.tuev) >= -90 && f.tuev <= monatEnde(1))
+    .sort((a, b) => a.tuev.localeCompare(b.tuev));
+  const gruppen = [
+    ["Abgelaufen", faellig.filter((f) => tageBis(f.tuev) < 0)],
+    ["Diesen Monat", faellig.filter((f) => tageBis(f.tuev) >= 0 && f.tuev <= monatEnde(0))],
+    ["Nächsten Monat", faellig.filter((f) => f.tuev > monatEnde(0))],
+  ];
+  const zeile = (f) => {
+    const k = km[f.kunde_id];
+    const knopf = !k?.telefon
+      ? `<span class="badge">keine Nummer</span>`
+      : `<button class="btn klein${f.tuev_erinnert ? "" : " primaer"}" data-erinnern="${f.id}">${f.tuev_erinnert ? "Nochmal" : "Anschreiben"}</button>`;
+    return `
+      <div class="zeile" data-fz="${f.id}">
+        <div class="kennzeichen">${h(f.kennzeichen || "—")}</div>
+        <div class="inhalt"><strong>${h(k?.name || "")}</strong>
+          <small>TÜV ${datum(f.tuev)}${f.tuev_erinnert ? ` · ✓ erinnert ${datum(f.tuev_erinnert).slice(0, 6)}` : ""}${k?.telefon && !k.kontakt_erlaubt ? " · ohne Zustimmung" : ""}</small></div>
+        ${knopf}
+      </div>`;
+  };
+  return {
+    titel: "TÜV-Erinnerungen",
+    zurueck: "#/start",
+    html: `
+      <p class="leise einleitung">Fahrzeuge, deren TÜV abgelaufen ist oder bis Ende nächsten Monats fällig wird.
+      „Anschreiben“ öffnet WhatsApp oder SMS mit fertigem Text.</p>
+      ${gruppen.filter(([, l]) => l.length).map(([titel, l]) => `<h2>${titel} (${l.length})</h2><div class="karte liste">${l.map(zeile).join("")}</div>`).join("")
+        || `<div class="karte">${leer("Zurzeit ist kein TÜV fällig.")}</div>`}
+    `,
+    nachher(root) {
+      $$("[data-fz]", root).forEach((el) => (el.onclick = (e) => { if (!e.target.closest("button")) location.hash = "#/fahrzeug/" + el.dataset.fz; }));
+      $$("[data-erinnern]", root).forEach((b) => (b.onclick = () => {
+        const f = fahrzeuge.find((x) => x.id === b.dataset.erinnern);
+        tuevErinnern(f, km[f.kunde_id]);
+      }));
+    },
+  };
+}
+
 async function viewTermine() {
   const [termine, kunden, fahrzeuge] = await Promise.all([db.list("termine", { order: "beginn" }), db.list("kunden"), db.list("fahrzeuge")]);
   const km = Object.fromEntries(kunden.map((k) => [k.id, k]));
   const fm = Object.fromEntries(fahrzeuge.map((f) => [f.id, f]));
   const h0 = heute();
-  let auswahl = terminFilter === "kommend" ? termine.filter((t) => tagKey(t.beginn) >= h0) : termine.filter((t) => tagKey(t.beginn) < h0).reverse();
+  let auswahl = terminFilter === "vergangen" ? termine.filter((t) => tagKey(t.beginn) < h0).reverse() : termine.filter((t) => tagKey(t.beginn) >= h0);
   const tage = {};
   for (const t of auswahl) (tage[tagKey(t.beginn)] ||= []).push(t);
   return {
@@ -711,15 +862,22 @@ async function viewTermine() {
     aktion: ["＋", () => terminFormular()],
     html: `
       <div class="segment">
-        <button class="${terminFilter === "kommend" ? "an" : ""}" data-filter="kommend">Kommende</button>
+        <button class="${terminFilter === "woche" ? "an" : ""}" data-filter="woche">Woche</button>
+        <button class="${terminFilter === "kommend" ? "an" : ""}" data-filter="kommend">Liste</button>
         <button class="${terminFilter === "vergangen" ? "an" : ""}" data-filter="vergangen">Vergangene</button>
       </div>
-      ${Object.entries(tage).map(([tag, ts]) => `
+      ${terminFilter === "woche" ? wochenHtml(termine, km, fm) : Object.entries(tage).map(([tag, ts]) => `
         <h2>${tag === h0 ? "Heute · " : ""}${wochentag(tag + "T00:00")}</h2>
         <div class="karte liste">${ts.map((t) => terminZeile(t, km, fm)).join("")}</div>`).join("") || `<div class="karte">${leer("Keine Termine")}</div>`}
     `,
     nachher(root) {
-      $$("[data-filter]", root).forEach((b) => (b.onclick = () => { terminFilter = b.dataset.filter; render(); }));
+      $$("[data-filter]", root).forEach((b) => (b.onclick = () => {
+        terminFilter = b.dataset.filter;
+        try { localStorage.setItem("werkstatt_terminansicht", terminFilter); } catch {}
+        render();
+      }));
+      $$("[data-woche]", root).forEach((b) => (b.onclick = () => { wocheVersatz = b.dataset.woche === "0" ? 0 : wocheVersatz + Number(b.dataset.woche); render(); }));
+      $$("[data-neu-tag]", root).forEach((b) => (b.onclick = () => terminFormular(null, { tag: b.dataset.neuTag })));
       terminZeilenAktivieren(root, termine);
     },
   };
@@ -983,9 +1141,9 @@ function nichtGefunden() {
 // ---------------------------------------------------------------------
 const ROUTEN = {
   start: viewStart, kunden: viewKunden, kunde: viewKunde, fahrzeug: viewFahrzeug,
-  auftrag: viewAuftrag, termine: viewTermine, teile: viewTeile, mehr: viewMehr,
+  auftrag: viewAuftrag, termine: viewTermine, teile: viewTeile, mehr: viewMehr, erinnerungen: viewErinnerungen,
 };
-const TAB_VON = { start: "start", kunden: "kunden", kunde: "kunden", fahrzeug: "kunden", auftrag: "kunden", termine: "termine", teile: "teile", mehr: "mehr" };
+const TAB_VON = { start: "start", kunden: "kunden", kunde: "kunden", fahrzeug: "kunden", auftrag: "kunden", termine: "termine", teile: "teile", mehr: "mehr", erinnerungen: "start" };
 
 let renderNr = 0;
 let letzteRoute = "";

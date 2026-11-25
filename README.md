@@ -5,12 +5,14 @@ Eine einfache App für eine Kfz-Werkstatt. Sie läuft auf **Handy, Tablet und PC
 **Funktionen**
 - **Kunden**: Name, Telefon (antippen ruft an), E-Mail, Adresse (öffnet Google Maps), Notizen
 - **Fahrzeuge** pro Kunde: Kennzeichen, Marke/Modell, Baujahr, km-Stand, FIN, TÜV-Termin (Warnung 30 Tage vorher)
+  und Werkstatt-Daten: HSN/TSN, Motorcode, Motoröl (Sorte und Menge), Reifengröße
 - **Aufträge/Historie** pro Fahrzeug: Arbeiten, Status (Offen / In Arbeit / Fertig), verbaute Teile, Arbeitslohn und Gesamtsumme
 - **Fotos** pro Fahrzeug und pro Auftrag, direkt mit der Handykamera. Die Fotos werden vor dem Hochladen automatisch verkleinert.
-- **Termine** mit Kunde und Fahrzeug, zum Abhaken
+- **Termine** mit Kunde und Fahrzeug, zum Abhaken, als **Wochenansicht** (KW, vor/zurück blättern) oder Liste
 - **Teile-Lager**: Bestand, Mindestbestand, Preise, Lagerort. Wird ein Teil in einen Auftrag eingetragen, bucht die App es automatisch aus dem Lager aus.
 - **Startseite**: Termine von heute und morgen, offene Aufträge, Teile zum Nachbestellen, TÜV bald fällig
-- **Suche** nach Name, Kennzeichen, Telefon oder FIN
+- **Suche** nach Name, Kennzeichen, Telefon, FIN oder Motorcode
+- **Kunden per WhatsApp/SMS benachrichtigen**: „Auto ist fertig“, TÜV-Erinnerung, Terminerinnerung, mit fertigen Texten
 - **Papierkorb** (30 Tage) und **Datensicherung** als ZIP-Datei inkl. Fotos
 - **Termine im Handy-Kalender**: aufs iPhone automatisch per Kalender-Abo (pro Gerät ein- oder ausschaltbar)
 
@@ -92,6 +94,27 @@ Siehe unten: [Kalender-Abo einrichten](#kalender-abo-einrichten-für-automatisch
 Ein Foto braucht nach dem Verkleinern ca. 200–400 KB. 1 GB reicht also für etwa 3.000 Fotos.
 **Hinweis:** Im Gratis-Tarif pausiert Supabase ein Projekt nach 7 Tagen ohne Nutzung. Es lässt sich im Dashboard per Klick wieder starten, die Daten bleiben erhalten. Bei täglicher Nutzung passiert das nicht.
 
+## Kunden per WhatsApp/SMS benachrichtigen
+
+Die App öffnet WhatsApp oder die SMS-App mit einem **fertigen Text**. Den Text kann man vorher noch anpassen,
+gesendet wird dann ganz normal vom Handy aus.
+
+| Wo | Knopf | Text |
+|---|---|---|
+| Auftrag | Status auf **„Fertig“** stellen, dann kommt der Vorschlag automatisch | „… ist fertig und kann abgeholt werden. Der Betrag beläuft sich auf …“ |
+| Termin (bearbeiten) | **„Kunden an Termin erinnern“** | „… wir möchten Sie an Ihren Termin erinnern: Donnerstag, 26. November um 09:00 Uhr …“ |
+| Fahrzeug / Start → **TÜV-Erinnerungen** | **„Anschreiben“** | „… die Hauptuntersuchung (TÜV) ist im Dezember fällig. Sollen wir einen Termin vereinbaren?“ |
+| Kunde | **„Nachricht“** | freier Text |
+
+**TÜV-Erinnerungen:** Auf der Startseite unter „TÜV / HU bald fällig“ → **„Kunden erinnern“** stehen alle Fahrzeuge,
+deren TÜV abgelaufen ist oder bis Ende nächsten Monats fällig wird. Die App merkt sich, wer schon angeschrieben wurde.
+
+> ⚖️ **Zustimmung:** Erinnerungen an den TÜV gelten rechtlich als Werbung. Ohne Zustimmung des Kunden ist das per
+> WhatsApp/SMS nicht erlaubt (§ 7 UWG). Deshalb gibt es beim Kunden das Häkchen
+> **„Kunde ist einverstanden, per WhatsApp/SMS erinnert zu werden“**. Am einfachsten fragt man bei der Fahrzeugannahme:
+> „Dürfen wir Sie erinnern, wenn der TÜV fällig ist?“ „Auto ist fertig“ und Terminerinnerungen sind keine Werbung,
+> dafür braucht es kein Häkchen.
+
 ## Termine im Handy-Kalender
 
 Unter **Mehr → Handy-Kalender** wird für **jedes Gerät einzeln** eingestellt, wie Termine in den Kalender kommen:
@@ -130,7 +153,7 @@ Damit das iPhone die Termine abonnieren kann, braucht Supabase eine kleine Zusat
 >   Google Kalender aktualisiert abonnierte Kalender allerdings nur alle paar Stunden.
 > - Falls der Link in falsche Hände gerät: **„Neuen Link erstellen“**. Der alte Link funktioniert dann nicht mehr.
 
-**Wichtig:** Wer `supabase/schema.sql` schon vor dem Kalender-Abo ausgeführt hat, muss es **noch einmal ausführen**.
+**Wichtig:** Wer `supabase/schema.sql` schon früher ausgeführt hat, muss es nach jedem Update der App **noch einmal ausführen**.
 Das ist gefahrlos, vorhandene Daten bleiben erhalten.
 
 ### Einstellung „Fragen“
@@ -172,6 +195,7 @@ js/db.js              Datenzugriff: Supabase oder Demo (localStorage)
 js/papierkorb.js      Papierkorb (30 Tage, inkl. abhängiger Daten)
 js/sicherung.js       Datensicherung als ZIP (JSON + CSV + Fotos) und Einspielen
 js/kalender.js        Termine in den Handy-Kalender (ics-Datei / Google Kalender / Abo)
+js/nachrichten.js     WhatsApp/SMS mit Textvorlagen
 supabase/functions/kalender/index.ts   Edge Function: Termine als abonnierbarer Kalender
 sw.js                 Service Worker (App-Dateien zwischenspeichern)
 supabase/schema.sql   Tabellen, Zugriffsschutz, Realtime, Foto-Speicher

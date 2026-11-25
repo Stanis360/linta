@@ -93,6 +93,16 @@ create table if not exists termine (
   created_at   timestamptz not null default now()
 );
 
+-- Erweiterungen (laufen auch bei bestehender Datenbank gefahrlos)
+alter table kunden    add column if not exists kontakt_erlaubt boolean not null default false;
+alter table fahrzeuge add column if not exists hsn text;
+alter table fahrzeuge add column if not exists tsn text;
+alter table fahrzeuge add column if not exists motorcode text;
+alter table fahrzeuge add column if not exists oel text;
+alter table fahrzeuge add column if not exists oelmenge numeric(4,1);
+alter table fahrzeuge add column if not exists reifen text;
+alter table fahrzeuge add column if not exists tuev_erinnert date;
+
 -- Papierkorb: gelöschte Einträge (inkl. abhängiger Daten) 30 Tage aufheben
 create table if not exists papierkorb (
   id          uuid primary key default gen_random_uuid(),
