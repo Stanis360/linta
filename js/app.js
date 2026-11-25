@@ -1,6 +1,9 @@
 import { db, DEMO } from "./db.js";
 import { inPapierkorb, wiederherstellen, endgueltigLoeschen, tageUebrig, aufraeumen, AUFBEWAHRUNG_TAGE } from "./papierkorb.js";
-import { kalenderEinstellungen, kalenderSpeichern, kalenderArt, inKalenderEintragen, ART_NAMEN } from "./kalender.js";
+import {
+  kalenderEinstellungen, kalenderSpeichern, kalenderArt, inKalenderEintragen, ART_NAMEN, istIOS,
+  ABO_MOEGLICH, aboLaden, aboErstellen, aboNeuerLink, aboBeenden, aboLink, aboWebcal, aboTesten,
+} from "./kalender.js";
 import { sicherungErstellen, sicherungEinspielen, letzteSicherung } from "./sicherung.js";
 
 const cfg = window.APP_CONFIG || {};
@@ -375,7 +378,7 @@ async function terminFormular(termin, vorgabe = {}) {
     ],
     werte: w,
     setup(form) {
-      if (termin) {
+      if (termin && kalenderEinstellungen().modus !== "abo") {
         const knopf = document.createElement("button");
         knopf.type = "button";
         knopf.className = "btn breit";
@@ -398,7 +401,7 @@ async function terminFormular(termin, vorgabe = {}) {
         : await db.insert("termine", { ...rest, erledigt: false });
       // Nur bei neuen Terminen oder wenn sich Zeit/Titel geändert haben
       const geaendert = !termin || new Date(termin.beginn).getTime() !== new Date(gespeichert.beginn).getTime() || termin.dauer_min !== gespeichert.dauer_min || termin.titel !== gespeichert.titel;
-      if (kalenderEinstellungen().aktiv && geaendert && !gespeichert.erledigt) {
+      if (kalenderEinstellungen().modus === "fragen" && geaendert && !gespeichert.erledigt) {
         setTimeout(() => kalenderAngebot(gespeichert, kunden.find((k) => k.id === gespeichert.kunde_id), fahrzeuge.find((f) => f.id === gespeichert.fahrzeug_id), !!termin), 50);
       }
     },
@@ -779,6 +782,8 @@ function sicherungsErinnerung() {
   return `<a class="hinweis-karte" href="#/mehr">💾 ${tage === null ? "Auf diesem Gerät wurde noch keine Datensicherung gemacht." : `Letzte Datensicherung vor ${tage} Tagen.`} <b>Jetzt sichern ›</b></a>`;
 }
 
+const ERINNERUNGEN = [[0, "Keine"], [15, "15 Min. vorher"], [30, "30 Min. vorher"], [60, "1 Std. vorher"], [120, "2 Std. vorher"], [1440, "1 Tag vorher"]];
+
 const PK_SYMBOL = { kunde: "👤", fahrzeug: "🚗", auftrag: "📋", teil: "🔧", termin: "📅", foto: "📷" };
 const PK_NAME = { kunde: "Kunde", fahrzeug: "Fahrzeug", auftrag: "Auftrag", teil: "Teil", termin: "Termin", foto: "Foto" };
 
@@ -797,6 +802,7 @@ async function viewMehr() {
   const papierkorb = await db.list("papierkorb", { order: "created_at", asc: false });
   const l = letzteSicherung();
   const kal = kalenderEinstellungen();
+  const abo = kal.modus === "abo" && ABO_MOEGLICH ? await versuch(() => aboErstellen()) : null;
   const inhalt = (e) => {
     const z = e.daten.zeilen || {};
     const teile = [];
@@ -810,21 +816,44 @@ async function viewMehr() {
     html: `
       <h2>Handy-Kalender</h2>
       <div class="karte text-block">
-        <p>Soll die App nach dem Speichern eines Termins anbieten, ihn in den Kalender <b>dieses Geräts</b> einzutragen?</p>
+        <p>Sollen Termine im Kalender <b>dieses Geräts</b> erscheinen?</p>
         <div class="segment">
-          <button class="${kal.aktiv ? "an" : ""}" data-kal-aktiv="1">Ja</button>
-          <button class="${kal.aktiv ? "" : "an"}" data-kal-aktiv="0">Nein</button>
+          <button class="${kal.modus === "aus" ? "an" : ""}" data-kal-modus="aus">Nein</button>
+          <button class="${kal.modus === "fragen" ? "an" : ""}" data-kal-modus="fragen">Fragen</button>
+          <button class="${kal.modus === "abo" ? "an" : ""}" data-kal-modus="abo">Automatisch</button>
         </div>
-        ${kal.aktiv ? `
+        <p class="leise">${{
+          aus: "Termine werden nicht in den Handy-Kalender eingetragen.",
+          fragen: "Nach dem Speichern eines Termins fragt die App, ob er in den Kalender soll.",
+          abo: "Alle Termine erscheinen von selbst im Kalender, auch Änderungen und Löschungen. <b>Empfohlen fürs iPhone.</b>",
+        }[kal.modus]}</p>
+        ${kal.modus === "fragen" ? `
           <label class="feld abstand"><span>Welcher Kalender?</span>
             <select data-kal-art>${Object.entries(ART_NAMEN).map(([k, n]) => `<option value="${k}" ${kal.art === k ? "selected" : ""}>${h(n)}${k === "auto" ? ` – hier: ${kalenderArt({ ...kal, art: "auto" }) === "google" ? "Google" : "Datei"}` : ""}</option>`).join("")}</select></label>
           ${kalenderArt(kal) === "ics" ? `
           <label class="feld abstand"><span>Erinnerung</span>
-            <select data-kal-erinnerung>${[[0, "Keine"], [15, "15 Min. vorher"], [30, "30 Min. vorher"], [60, "1 Std. vorher"], [120, "2 Std. vorher"], [1440, "1 Tag vorher"]]
-              .map(([v, n]) => `<option value="${v}" ${Number(kal.erinnerung) === v ? "selected" : ""}>${n}</option>`).join("")}</select></label>` : `
+            <select data-kal-erinnerung>${ERINNERUNGEN.map(([v, n]) => `<option value="${v}" ${Number(kal.erinnerung) === v ? "selected" : ""}>${n}</option>`).join("")}</select></label>` : `
           <p class="leise">Google Kalender verwendet die Erinnerung, die dort als Standard eingestellt ist.</p>`}` : ""}
-        <p class="leise">Die Einstellung gilt nur für dieses Gerät, z.B. am Handy „Ja“ und am Werkstatt-PC „Nein“.
-        Jeder Termin hat außerdem den Knopf „In Handy-Kalender eintragen“.</p>
+        ${kal.modus === "abo" ? (abo ? `
+          <div class="abo-status" id="abo-status">⏳ Prüfe Verbindung …</div>
+          <a class="btn primaer breit" href="${h(aboWebcal(abo))}">📅 ${istIOS() ? "Im iPhone-Kalender abonnieren" : "Kalender abonnieren"}</a>
+          <ol class="schritte leise">
+            <li>Auf <b>„${istIOS() ? "Im iPhone-Kalender abonnieren" : "Kalender abonnieren"}“</b> tippen und dann <b>„Abonnieren“</b> und <b>„Hinzufügen“</b> wählen.</li>
+            <li>Fertig. Neue und geänderte Termine erscheinen jetzt von selbst im Kalender.</li>
+            <li>Damit es schnell geht: iPhone-<b>Einstellungen → Kalender → Accounts → Datenabgleich</b> (bzw. „Neue Daten laden“) auf <b>„Alle 15 Minuten“</b> stellen.</li>
+          </ol>
+          <label class="feld abstand"><span>Erinnerung im Kalender</span>
+            <select data-abo-erinnerung>${ERINNERUNGEN.map(([v, n]) => `<option value="${v}" ${abo.erinnerung === v ? "selected" : ""}>${n}</option>`).join("")}</select></label>
+          <label class="check"><input type="checkbox" data-abo-erledigt ${abo.erledigte_zeigen ? "checked" : ""}> Erledigte Termine auch anzeigen (mit ✓)</label>
+          <div class="schnell">
+            <button class="btn klein" data-abo-kopieren>Link kopieren</button>
+            <button class="btn klein" data-abo-neu>Neuen Link erstellen</button>
+          </div>
+          <p class="leise klein links">Der Link ist geheim: Wer ihn hat, sieht die Termine. Nicht weitergeben.
+          „Neuen Link erstellen“ macht den alten ungültig; danach im Kalender neu abonnieren.
+          Am PC lässt sich derselbe Link in Outlook oder Google Kalender („Per URL hinzufügen“) eintragen.</p>
+        ` : `<p class="hinweis abstand">${ABO_MOEGLICH ? "Kalender-Abo konnte nicht geladen werden." : "Im Demo-Modus nicht verfügbar – dafür muss erst die Datenbank (Supabase) eingerichtet sein."}</p>`) : ""}
+        ${kal.modus !== "abo" ? `<p class="leise">Die Einstellung gilt nur für dieses Gerät, z.B. am Handy „Automatisch“ und am Werkstatt-PC „Nein“.</p>` : ""}
       </div>
 
       <h2>Datensicherung</h2>
@@ -864,7 +893,39 @@ async function viewMehr() {
       </div>
     `,
     nachher(root) {
-      $$("[data-kal-aktiv]", root).forEach((b) => (b.onclick = () => { kalenderSpeichern({ aktiv: b.dataset.kalAktiv === "1" }); render(); }));
+      $$("[data-kal-modus]", root).forEach((b) => (b.onclick = () => versuch(async () => {
+        const modus = b.dataset.kalModus;
+        if (kal.modus === "abo" && modus !== "abo" && ABO_MOEGLICH) {
+          const bestehend = await aboLaden();
+          if (bestehend && confirm("Kalender-Abo beenden?\nDie Termine werden dann nicht mehr an den Kalender geliefert.\n\nAuf dem iPhone den abonnierten Kalender zusätzlich löschen: Kalender-App → „Kalender“ → (i) neben dem Kalender → „Kalender löschen“.")) {
+            await aboBeenden(bestehend);
+          }
+        }
+        kalenderSpeichern({ modus });
+        render();
+      })));
+      if (abo) {
+        aboTesten(abo).then((r) => {
+          const el = $("#abo-status", root);
+          if (!el) return;
+          el.className = "abo-status " + (r.ok ? "ok" : "fehler");
+          el.innerHTML = r.ok
+            ? `✓ Kalender-Verbindung funktioniert (${r.anzahl} Termin${r.anzahl === 1 ? "" : "e"})`
+            : `✗ ${h(r.grund)}.<br><small>Einmalige Einrichtung nötig – siehe Anleitung, Abschnitt „Kalender-Abo“.</small>`;
+        });
+        $("[data-abo-erinnerung]", root).onchange = (e) => versuch(async () => { await db.update("kalender_abos", abo.id, { erinnerung: Number(e.target.value) }); toast("Gespeichert – gilt beim nächsten Abgleich"); });
+        $("[data-abo-erledigt]", root).onchange = (e) => versuch(async () => { await db.update("kalender_abos", abo.id, { erledigte_zeigen: e.target.checked }); toast("Gespeichert – gilt beim nächsten Abgleich"); });
+        $("[data-abo-kopieren]", root).onclick = async () => {
+          try { await navigator.clipboard.writeText(aboLink(abo)); toast("Link kopiert"); }
+          catch { prompt("Link zum Kopieren:", aboLink(abo)); }
+        };
+        $("[data-abo-neu]", root).onclick = () => versuch(async () => {
+          if (!confirm("Neuen Link erstellen? Der alte Link funktioniert dann nicht mehr – im Kalender muss neu abonniert werden.")) return;
+          await aboNeuerLink(abo);
+          toast("Neuer Link erstellt – jetzt neu abonnieren");
+          render();
+        });
+      }
       const art = $("[data-kal-art]", root);
       if (art) art.onchange = () => { kalenderSpeichern({ art: art.value }); render(); };
       const er = $("[data-kal-erinnerung]", root);

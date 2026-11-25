@@ -103,6 +103,17 @@ create table if not exists papierkorb (
   created_at  timestamptz not null default now()
 );
 
+-- Kalender-Abo: geheimer Link, über den das iPhone die Termine abonniert
+create table if not exists kalender_abos (
+  id                uuid primary key default gen_random_uuid(),
+  user_id           uuid not null default auth.uid() unique references auth.users on delete cascade,
+  token             text not null unique default replace(gen_random_uuid()::text || gen_random_uuid()::text, '-', ''),
+  name              text,
+  erinnerung        int not null default 60,
+  erledigte_zeigen  boolean not null default false,
+  created_at        timestamptz not null default now()
+);
+
 create index if not exists fahrzeuge_kunde_idx     on fahrzeuge (kunde_id);
 create index if not exists auftraege_fahrzeug_idx  on auftraege (fahrzeug_id);
 create index if not exists auftrag_teile_idx       on auftrag_teile (auftrag_id);
@@ -114,7 +125,7 @@ create index if not exists termine_beginn_idx      on termine (beginn);
 do $$
 declare t text;
 begin
-  foreach t in array array['kunden','fahrzeuge','auftraege','teile','auftrag_teile','fotos','termine','papierkorb']
+  foreach t in array array['kunden','fahrzeuge','auftraege','teile','auftrag_teile','fotos','termine','papierkorb','kalender_abos']
   loop
     execute format('alter table %I enable row level security', t);
     execute format('drop policy if exists "nur eigene daten" on %I', t);

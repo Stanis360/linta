@@ -12,7 +12,7 @@ Eine einfache App für eine Kfz-Werkstatt. Sie läuft auf **Handy, Tablet und PC
 - **Startseite**: Termine von heute und morgen, offene Aufträge, Teile zum Nachbestellen, TÜV bald fällig
 - **Suche** nach Name, Kennzeichen, Telefon oder FIN
 - **Papierkorb** (30 Tage) und **Datensicherung** als ZIP-Datei inkl. Fotos
-- **Termine in den Handy-Kalender** eintragen (pro Gerät ein- oder ausschaltbar)
+- **Termine im Handy-Kalender**: aufs iPhone automatisch per Kalender-Abo (pro Gerät ein- oder ausschaltbar)
 
 Ohne Einrichtung startet die App im **Demo-Modus**. Dann bleiben die Daten nur im Browser dieses einen Geräts, und es gibt keinen Sync.
 
@@ -76,6 +76,10 @@ Ein Build-Schritt ist nicht nötig, die App besteht nur aus statischen Dateien.
 
 Danach auf jedem Gerät mit derselben E-Mail und demselben Passwort anmelden. Fertig: Änderungen erscheinen sofort auf allen Geräten.
 
+### 6. Termine im iPhone-Kalender (optional, 5 Minuten)
+
+Siehe unten: [Kalender-Abo einrichten](#kalender-abo-einrichten-für-automatisch-einmalig-ca-5-minuten).
+
 ---
 
 ## Kosten
@@ -90,16 +94,52 @@ Ein Foto braucht nach dem Verkleinern ca. 200–400 KB. 1 GB reicht also für et
 
 ## Termine im Handy-Kalender
 
-Unter **Mehr → Handy-Kalender** wird für **jedes Gerät einzeln** eingestellt, ob die App nach dem Speichern eines Termins
-fragt: „In den Kalender eintragen?“ Am Handy z.B. „Ja“, am Werkstatt-PC „Nein“.
-Unabhängig davon hat jeder Termin den Knopf **„📅 In Handy-Kalender eintragen“**.
+Unter **Mehr → Handy-Kalender** wird für **jedes Gerät einzeln** eingestellt, wie Termine in den Kalender kommen:
 
-- **Android:** Google Kalender öffnet sich mit dem fertig ausgefüllten Termin, dann nur noch auf „Speichern“ tippen.
-- **iPhone/iPad:** Es erscheint „Zum Kalender hinzufügen“. Die Erinnerung (z.B. 1 Std. vorher) lässt sich in der App einstellen.
-- **PC:** Eine Kalenderdatei (.ics) wird heruntergeladen, Doppelklick öffnet sie in Outlook bzw. im Windows-Kalender.
+| Einstellung | Was passiert | Am besten für |
+|---|---|---|
+| **Nein** | nichts | Werkstatt-PC |
+| **Fragen** | Nach dem Speichern fragt die App „In den Kalender eintragen?“ | Android |
+| **Automatisch** | Alle Termine erscheinen von selbst im Kalender, auch Änderungen und Löschungen | **iPhone** ✅ |
 
 Im Kalender-Eintrag stehen Kunde, Telefonnummer und Fahrzeug.
-**Wichtig:** Der Kalender-Eintrag ist eine Kopie. Wird der Termin in der App verschoben, bietet die App an, ihn neu
+
+### Kalender-Abo einrichten (für „Automatisch“, einmalig, ca. 5 Minuten)
+
+Damit das iPhone die Termine abonnieren kann, braucht Supabase eine kleine Zusatz-Funktion:
+
+1. In Supabase links auf **Edge Functions** gehen, dann **„Deploy a new function“** → **„Via Editor“**.
+2. Als Name **`kalender`** eintragen (genau so, klein geschrieben).
+3. Den vorgegebenen Beispiel-Code komplett löschen und stattdessen den Inhalt der Datei
+   [`supabase/functions/kalender/index.ts`](supabase/functions/kalender/index.ts) einfügen. Dann **„Deploy function“** klicken.
+4. Bei der Funktion **`kalender`** die Einstellungen (**Details/Settings**) öffnen und **„Verify JWT“** bzw.
+   **„Enforce JWT Verification“** **ausschalten** und speichern. Das ist nötig, weil sich die Kalender-App nicht anmelden kann.
+   Geschützt sind die Termine trotzdem: Sie sind nur über einen langen, geheimen Link abrufbar.
+5. In der App auf dem iPhone: **Mehr → Handy-Kalender → „Automatisch“**. Es sollte ein grünes
+   **„✓ Kalender-Verbindung funktioniert“** erscheinen.
+6. Auf **„Im iPhone-Kalender abonnieren“** tippen und mit **„Abonnieren“** und **„Hinzufügen“** bestätigen.
+7. Damit neue Termine schnell erscheinen: iPhone-**Einstellungen → Kalender → Accounts → Datenabgleich**
+   (je nach iOS-Version „Neue Daten laden“) auf **„Alle 15 Minuten“** stellen.
+
+> **Gut zu wissen**
+> - Der Kalender heißt im iPhone „Kfz-Werkstatt … – Termine“ und hat eine eigene Farbe. Er lässt sich in der
+>   Kalender-App unter „Kalender“ ein- und ausblenden.
+> - Das iPhone holt neue Termine alle paar Minuten ab, nicht sekundengenau. In der App selbst sind sie sofort da.
+> - Termine bearbeitet man in der App. Im iPhone-Kalender sind sie nur zum Anschauen.
+> - Am PC kann derselbe Link (Mehr → „Link kopieren“) in Outlook oder Google Kalender („Per URL hinzufügen“) eingetragen werden.
+>   Google Kalender aktualisiert abonnierte Kalender allerdings nur alle paar Stunden.
+> - Falls der Link in falsche Hände gerät: **„Neuen Link erstellen“**. Der alte Link funktioniert dann nicht mehr.
+
+**Wichtig:** Wer `supabase/schema.sql` schon vor dem Kalender-Abo ausgeführt hat, muss es **noch einmal ausführen**.
+Das ist gefahrlos, vorhandene Daten bleiben erhalten.
+
+### Einstellung „Fragen“
+
+- **Android:** Google Kalender öffnet sich mit dem fertig ausgefüllten Termin, dann nur noch auf „Speichern“ tippen.
+- **iPhone/iPad:** Es erscheint „Zum Kalender hinzufügen“.
+- **PC:** Eine Kalenderdatei (.ics) wird heruntergeladen, Doppelklick öffnet sie in Outlook bzw. im Windows-Kalender.
+
+Der Kalender-Eintrag ist hier eine Kopie. Wird der Termin in der App verschoben, bietet die App an, ihn neu
 einzutragen. Den alten Eintrag im Handy-Kalender muss man dann von Hand löschen.
 
 ## Datensicherung & Papierkorb
@@ -131,7 +171,8 @@ js/app.js             Ansichten, Formulare, Fotos, Routing
 js/db.js              Datenzugriff: Supabase oder Demo (localStorage)
 js/papierkorb.js      Papierkorb (30 Tage, inkl. abhängiger Daten)
 js/sicherung.js       Datensicherung als ZIP (JSON + CSV + Fotos) und Einspielen
-js/kalender.js        Termine in den Handy-Kalender (ics-Datei / Google Kalender)
+js/kalender.js        Termine in den Handy-Kalender (ics-Datei / Google Kalender / Abo)
+supabase/functions/kalender/index.ts   Edge Function: Termine als abonnierbarer Kalender
 sw.js                 Service Worker (App-Dateien zwischenspeichern)
 supabase/schema.sql   Tabellen, Zugriffsschutz, Realtime, Foto-Speicher
 vendor/supabase.js    Supabase-Bibliothek v2.45.4 (MIT-Lizenz)

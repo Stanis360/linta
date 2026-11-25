@@ -268,3 +268,12 @@ a.info-zeile b { color: var(--primaer); }
 .frage-symbol { font-size: 40px; margin-bottom: 4px; }
 .frage-inhalt .btn.breit { margin-top: 12px; }
 .leise.klein { font-size: 13px; margin-top: 14px; }
+.abo-status { margin-top: 12px; padding: 10px 12px; border-radius: 10px; background: var(--bg); font-size: 15px; }
+.abo-status.ok { background: var(--gruen-bg); color: var(--gruen); }
+.abo-status.fehler { background: var(--rot-bg); color: var(--rot); }
+.schritte { padding-left: 20px; margin: 12px 0 0; }
+.schritte li { margin-top: 6px; }
+.hinweis.abstand { margin-top: 12px; }
+.leise.klein.links { text-align: left; }
+.text-block .check { margin-top: 8px; }
+a.btn { text-align: center; }
