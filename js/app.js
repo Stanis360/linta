@@ -1,5 +1,6 @@
 import { db, DEMO } from "./db.js";
 import { inPapierkorb, wiederherstellen, endgueltigLoeschen, tageUebrig, aufraeumen, AUFBEWAHRUNG_TAGE } from "./papierkorb.js";
+import { kalenderEinstellungen, kalenderSpeichern, kalenderArt, inKalenderEintragen, ART_NAMEN } from "./kalender.js";
 import { sicherungErstellen, sicherungEinspielen, letzteSicherung } from "./sicherung.js";
 
 const cfg = window.APP_CONFIG || {};
@@ -374,6 +375,14 @@ async function terminFormular(termin, vorgabe = {}) {
     ],
     werte: w,
     setup(form) {
+      if (termin) {
+        const knopf = document.createElement("button");
+        knopf.type = "button";
+        knopf.className = "btn breit";
+        knopf.textContent = "📅 In Handy-Kalender eintragen";
+        knopf.onclick = () => inKalenderEintragen(termin, kunden.find((k) => k.id === termin.kunde_id), fahrzeuge.find((f) => f.id === termin.fahrzeug_id));
+        $(".sheet-inhalt", form).insertBefore(knopf, $("[data-loeschen]", form));
+      }
       form.elements.kunde_id.onchange = () => {
         const opt = fzOptionen(form.elements.kunde_id.value);
         form.elements.fahrzeug_id.innerHTML = opt.map(([v, l]) => `<option value="${h(v)}">${h(l)}</option>`).join("");
@@ -384,11 +393,39 @@ async function terminFormular(termin, vorgabe = {}) {
       const { tag, zeit, ...rest } = d;
       rest.beginn = new Date(`${tag}T${zeit}`).toISOString();
       rest.dauer_min = Number(rest.dauer_min);
-      if (termin) await db.update("termine", termin.id, rest);
-      else await db.insert("termine", { ...rest, erledigt: false });
+      const gespeichert = termin
+        ? await db.update("termine", termin.id, rest)
+        : await db.insert("termine", { ...rest, erledigt: false });
+      // Nur bei neuen Terminen oder wenn sich Zeit/Titel geändert haben
+      const geaendert = !termin || new Date(termin.beginn).getTime() !== new Date(gespeichert.beginn).getTime() || termin.dauer_min !== gespeichert.dauer_min || termin.titel !== gespeichert.titel;
+      if (kalenderEinstellungen().aktiv && geaendert && !gespeichert.erledigt) {
+        setTimeout(() => kalenderAngebot(gespeichert, kunden.find((k) => k.id === gespeichert.kunde_id), fahrzeuge.find((f) => f.id === gespeichert.fahrzeug_id), !!termin), 50);
+      }
     },
     loeschen: termin && (() => inPapierkorb("termin", termin.id)),
   });
+}
+
+function kalenderAngebot(termin, kunde, fahrzeug, geaendert) {
+  const modal = document.createElement("div");
+  modal.className = "modal";
+  modal.innerHTML = `
+    <div class="sheet frage">
+      <div class="frage-inhalt">
+        <div class="frage-symbol">📅</div>
+        <strong>Termin ${geaendert ? "geändert" : "gespeichert"}</strong>
+        <p>${h(termin.titel)}<br>${wochentag(termin.beginn)}, ${uhrzeit(termin.beginn)} Uhr</p>
+        <p class="leise">${geaendert ? "Den alten Eintrag im Handy-Kalender bitte von Hand löschen." : "In den Kalender dieses Geräts eintragen?"}</p>
+        <button class="btn primaer breit" data-ja>📅 ${geaendert ? "Neu eintragen" : "Ja, eintragen"}</button>
+        <button class="btn breit" data-nein>Nein, danke</button>
+        <p class="leise klein">Abschalten unter „Mehr“ → „Handy-Kalender“</p>
+      </div>
+    </div>`;
+  const zu = () => modal.remove();
+  $("[data-nein]", modal).onclick = zu;
+  modal.addEventListener("click", (e) => e.target === modal && zu());
+  $("[data-ja]", modal).onclick = () => { inKalenderEintragen(termin, kunde, fahrzeug); zu(); };
+  document.body.append(modal);
 }
 
 // ---------------------------------------------------------------------
@@ -759,6 +796,7 @@ function fortschrittsAnzeige() {
 async function viewMehr() {
   const papierkorb = await db.list("papierkorb", { order: "created_at", asc: false });
   const l = letzteSicherung();
+  const kal = kalenderEinstellungen();
   const inhalt = (e) => {
     const z = e.daten.zeilen || {};
     const teile = [];
@@ -770,6 +808,25 @@ async function viewMehr() {
   return {
     titel: "Mehr",
     html: `
+      <h2>Handy-Kalender</h2>
+      <div class="karte text-block">
+        <p>Soll die App nach dem Speichern eines Termins anbieten, ihn in den Kalender <b>dieses Geräts</b> einzutragen?</p>
+        <div class="segment">
+          <button class="${kal.aktiv ? "an" : ""}" data-kal-aktiv="1">Ja</button>
+          <button class="${kal.aktiv ? "" : "an"}" data-kal-aktiv="0">Nein</button>
+        </div>
+        ${kal.aktiv ? `
+          <label class="feld abstand"><span>Welcher Kalender?</span>
+            <select data-kal-art>${Object.entries(ART_NAMEN).map(([k, n]) => `<option value="${k}" ${kal.art === k ? "selected" : ""}>${h(n)}${k === "auto" ? ` – hier: ${kalenderArt({ ...kal, art: "auto" }) === "google" ? "Google" : "Datei"}` : ""}</option>`).join("")}</select></label>
+          ${kalenderArt(kal) === "ics" ? `
+          <label class="feld abstand"><span>Erinnerung</span>
+            <select data-kal-erinnerung>${[[0, "Keine"], [15, "15 Min. vorher"], [30, "30 Min. vorher"], [60, "1 Std. vorher"], [120, "2 Std. vorher"], [1440, "1 Tag vorher"]]
+              .map(([v, n]) => `<option value="${v}" ${Number(kal.erinnerung) === v ? "selected" : ""}>${n}</option>`).join("")}</select></label>` : `
+          <p class="leise">Google Kalender verwendet die Erinnerung, die dort als Standard eingestellt ist.</p>`}` : ""}
+        <p class="leise">Die Einstellung gilt nur für dieses Gerät, z.B. am Handy „Ja“ und am Werkstatt-PC „Nein“.
+        Jeder Termin hat außerdem den Knopf „In Handy-Kalender eintragen“.</p>
+      </div>
+
       <h2>Datensicherung</h2>
       <div class="karte text-block">
         <p>Lädt <b>alle Daten</b> als ZIP-Datei herunter: Kunden, Fahrzeuge, Aufträge, Termine, Teile und auf Wunsch alle Fotos.
@@ -807,6 +864,11 @@ async function viewMehr() {
       </div>
     `,
     nachher(root) {
+      $$("[data-kal-aktiv]", root).forEach((b) => (b.onclick = () => { kalenderSpeichern({ aktiv: b.dataset.kalAktiv === "1" }); render(); }));
+      const art = $("[data-kal-art]", root);
+      if (art) art.onchange = () => { kalenderSpeichern({ art: art.value }); render(); };
+      const er = $("[data-kal-erinnerung]", root);
+      if (er) er.onchange = () => { kalenderSpeichern({ erinnerung: Number(er.value) }); toast("Gespeichert"); };
       $$("[data-sichern]", root).forEach((b) => (b.onclick = async () => {
         const f = fortschrittsAnzeige();
         const r = await versuch(() => sicherungErstellen({ mitFotos: b.dataset.sichern === "1", fortschritt: f.setzen }));

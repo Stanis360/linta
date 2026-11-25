@@ -257,3 +257,14 @@ a.info-zeile b { color: var(--primaer); }
 .knopf-zeile { width: 100%; background: none; border: 0; font: inherit; color: inherit; text-align: left; }
 .zeile.pk { cursor: default; }
 .zeile.pk .avatar { font-size: 18px; }
+
+/* ---------- Kalender ---------- */
+.text-block .segment { margin-top: 12px; }
+.feld.abstand { margin-top: 12px; }
+.sheet.frage { max-width: 420px; }
+.frage-inhalt { padding: 24px 20px calc(20px + env(safe-area-inset-bottom)); text-align: center; }
+.frage-inhalt strong { font-size: 19px; }
+.frage-inhalt p { margin: 8px 0 0; }
+.frage-symbol { font-size: 40px; margin-bottom: 4px; }
+.frage-inhalt .btn.breit { margin-top: 12px; }
+.leise.klein { font-size: 13px; margin-top: 14px; }

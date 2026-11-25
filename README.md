@@ -12,6 +12,7 @@ Eine einfache App für eine Kfz-Werkstatt. Sie läuft auf **Handy, Tablet und PC
 - **Startseite**: Termine von heute und morgen, offene Aufträge, Teile zum Nachbestellen, TÜV bald fällig
 - **Suche** nach Name, Kennzeichen, Telefon oder FIN
 - **Papierkorb** (30 Tage) und **Datensicherung** als ZIP-Datei inkl. Fotos
+- **Termine in den Handy-Kalender** eintragen (pro Gerät ein- oder ausschaltbar)
 
 Ohne Einrichtung startet die App im **Demo-Modus**. Dann bleiben die Daten nur im Browser dieses einen Geräts, und es gibt keinen Sync.
 
@@ -87,6 +88,20 @@ Danach auf jedem Gerät mit derselben E-Mail und demselben Passwort anmelden. Fe
 Ein Foto braucht nach dem Verkleinern ca. 200–400 KB. 1 GB reicht also für etwa 3.000 Fotos.
 **Hinweis:** Im Gratis-Tarif pausiert Supabase ein Projekt nach 7 Tagen ohne Nutzung. Es lässt sich im Dashboard per Klick wieder starten, die Daten bleiben erhalten. Bei täglicher Nutzung passiert das nicht.
 
+## Termine im Handy-Kalender
+
+Unter **Mehr → Handy-Kalender** wird für **jedes Gerät einzeln** eingestellt, ob die App nach dem Speichern eines Termins
+fragt: „In den Kalender eintragen?“ Am Handy z.B. „Ja“, am Werkstatt-PC „Nein“.
+Unabhängig davon hat jeder Termin den Knopf **„📅 In Handy-Kalender eintragen“**.
+
+- **Android:** Google Kalender öffnet sich mit dem fertig ausgefüllten Termin, dann nur noch auf „Speichern“ tippen.
+- **iPhone/iPad:** Es erscheint „Zum Kalender hinzufügen“. Die Erinnerung (z.B. 1 Std. vorher) lässt sich in der App einstellen.
+- **PC:** Eine Kalenderdatei (.ics) wird heruntergeladen, Doppelklick öffnet sie in Outlook bzw. im Windows-Kalender.
+
+Im Kalender-Eintrag stehen Kunde, Telefonnummer und Fahrzeug.
+**Wichtig:** Der Kalender-Eintrag ist eine Kopie. Wird der Termin in der App verschoben, bietet die App an, ihn neu
+einzutragen. Den alten Eintrag im Handy-Kalender muss man dann von Hand löschen.
+
 ## Datensicherung & Papierkorb
 
 **Papierkorb:** Alles, was gelöscht wird (Kunden, Fahrzeuge, Aufträge, Termine, Teile, Fotos), landet zuerst im
@@ -116,6 +131,7 @@ js/app.js             Ansichten, Formulare, Fotos, Routing
 js/db.js              Datenzugriff: Supabase oder Demo (localStorage)
 js/papierkorb.js      Papierkorb (30 Tage, inkl. abhängiger Daten)
 js/sicherung.js       Datensicherung als ZIP (JSON + CSV + Fotos) und Einspielen
+js/kalender.js        Termine in den Handy-Kalender (ics-Datei / Google Kalender)
 sw.js                 Service Worker (App-Dateien zwischenspeichern)
 supabase/schema.sql   Tabellen, Zugriffsschutz, Realtime, Foto-Speicher
 vendor/supabase.js    Supabase-Bibliothek v2.45.4 (MIT-Lizenz)
